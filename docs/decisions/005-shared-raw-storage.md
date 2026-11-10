@@ -1,0 +1,15 @@
+# 005 — Conteúdo RAW compartilhado e arquivamento verificado
+
+Status: aceita. Data: 10/11/2026. Complementa a decisão 001 quanto à representação física dos RAW, por solicitação do proprietário.
+
+Os bytes originais, seu hash e a proveniência continuam sendo a fonte da verdade. Arquivos com respostas repetidas passam a compartilhar um objeto por SHA-256, comprimido com gzip se menor. Cada recebimento conserva uma referência própria e sua linha append-only em `raw_artifacts`. O hash e o tamanho desse índice continuam descrevendo o corpo original, não a referência ou o gzip. Não há deduplicação por nome, faixa ou JSON semanticamente equivalente; espaços diferentes produzem corpos diferentes.
+
+RAW são publicados antes da transação do índice. Falhas preservam arquivos órfãos e parciais. `raw_objects` e `raw_storage_refs` registram a representação atual sem alterar o índice imutável. Leitura, verificação e replay verificam SHA-256 após descompressão e aceitam arquivos legados literais. Novas ocorrências guardam hash canônico do item em vez de repetir seu JSONB; artefato e posição recuperam o payload completo. JSONB anterior permanece preservado. A identidade das plays e dos eventos não muda.
+
+A conversão dos arquivos antigos e a liberação de objetos locais exigem um snapshot privado dos conteúdos e de todo o schema do banco, incluindo índice e auditoria. Um snapshot PostgreSQL exportado mantém dump e fingerprints no mesmo instante. O dump é realmente restaurado em um banco novo com nome aleatório terminado em `_test`; todas as tabelas e todos os conteúdos RAW são conferidos antes de qualquer liberação. Se houver falha, nenhuma liberação adicional é autorizada. O banco principal nunca é destino da restauração de teste.
+
+A manutenção usa o mesmo advisory lock da ingestão. Diariamente cria um snapshot verificado e, por padrão, arquiva objetos recebidos inicialmente há pelo menos 30 dias. Só os objetos geridos pela aplicação podem sair da pasta ativa. Referências, corpos únicos no arquivo, tokens, relatórios e dumps anteriores do proprietário não expiram. A rotação mantém três snapshots completos do banco, aceitando apenas diretórios gerados pela aplicação, verificados e cobertos pelo snapshot atual; arquivos desconhecidos impedem sua remoção. Valor zero desativa essa rotação; valores positivos devem ser pelo menos dois.
+
+O destino escolhido inicialmente é `storage/archive`, privado e fora do Git, dentro do projeto. Não oferece proteção contra perda do disco; é necessário copiar todo o arquivo para outro meio. O diretório ativo de referências e o arquivo precisam acompanhar qualquer cópia ou mudança de configuração. Dumps não incluem `.env`, tokens ou relatórios em arquivos; estes continuam exigindo backup privado separado.
+
+O monitor permanece somente leitura. Mostra bytes lógicos, bytes ativos catalogados, conteúdos únicos, arquivo/backup medido na última manutenção e data da última restauração verificada. Esses números não medem alocação NTFS nem o espaço reservado pelo Docker. A coleta passa a 900 segundos; atualizar o monitor a cada cinco segundos continua sem chamar o Spotify ou gravar respostas RAW.

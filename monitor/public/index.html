@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#121212">
+  <title>ListenLab · Dashboard</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='12' fill='%231db954'/%3E%3Cpath d='M12 17v6m8-12v18m8-15v12' stroke='%23121212' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E">
+  <script src="/assets/theme.js"></script>
+  <link rel="stylesheet" href="/assets/style.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body data-page="dashboard">
+  <aside class="sidebar">
+    <a class="brand" href="/dashboard" aria-label="ListenLab, dashboard"><span class="brand-mark"><i></i><i></i><i></i><i></i></span><span>ListenLab<span class="brand-sub">SEU ARQUIVO MUSICAL</span></span></a>
+    <div class="nav-label">SEU LISTENLAB</div>
+    <nav aria-label="Menu principal"><a class="nav-item active" href="/dashboard" aria-current="page" aria-label="Dashboard" title="Dashboard"><span aria-hidden="true">◫</span> Dashboard</a><a class="nav-item" href="/dashboard#history" aria-label="Histórico de execuções" title="Histórico de execuções"><span aria-hidden="true">↺</span> Histórico de execuções</a><a class="nav-item" href="/tests" aria-label="Testes" title="Testes"><span aria-hidden="true">✓</span> Testes</a><button class="nav-item" id="help-button" aria-label="Guia rápido" title="Guia rápido"><span aria-hidden="true">ⓘ</span> Guia rápido</button><button class="nav-item" id="theme-toggle" type="button" aria-label="Modo escuro" aria-pressed="false" title="Modo escuro"><span aria-hidden="true" id="theme-icon">☾</span><span class="nav-text" id="theme-label">Modo escuro</span></button></nav>
+    <div class="sidebar-bottom"><div class="local-label"><span class="small-dot"></span> Feito para rodar localmente</div><p>Seu histórico, sob seu controle.</p><span class="version">LISTENLAB / MONITOR</span></div>
+  </aside>
+  <main id="overview">
+    <nav class="screen-switcher" aria-label="Telas do ListenLab"><a href="/dashboard" aria-current="page">Dashboard</a><a href="/tests">Testes</a></nav>
+    <header class="page-header"><div><div class="eyebrow">MONITOR LOCAL</div><h1>Dashboard da coleta.</h1><p>Saiba quando seu histórico foi buscado e o que aconteceu em cada coleta.</p></div><div class="header-actions"><span class="live-label" id="live-label"><span class="small-dot"></span> Conectando</span><button class="button button-light" id="refresh-button"><span aria-hidden="true">↻</span> Atualizar</button></div></header>
+    <div class="error-banner" id="error-banner" role="alert" hidden></div>
+    <section class="collector-card" aria-labelledby="collector-title">
+      <div class="collector-main"><div class="collector-top"><span class="collector-label"><span class="signal-icon" aria-hidden="true">⌁</span> COLETOR AUTOMÁTICO</span><span class="status-pill" id="collector-badge">VERIFICANDO</span></div><h2 id="collector-title">Conectando ao seu coletor…</h2><p id="collector-description">Consultando o estado do agendador e o histórico de execuções.</p><div class="collector-meta"><span><span class="meta-icon" aria-hidden="true">◷</span> Intervalo: <strong id="interval-value">—</strong></span><span><span class="meta-icon" aria-hidden="true">●</span> <span id="heartbeat-value">Aguardando sinal</span></span></div></div>
+      <div class="countdown-panel"><span class="countdown-label" id="countdown-label">PRÓXIMA COLETA</span><div class="countdown" id="countdown-value">—:—</div><div class="progress-track"><div class="progress-fill" id="countdown-progress"></div></div><span class="countdown-time" id="next-run-value">Aguardando confirmação do agendador</span></div>
+    </section>
+    <section class="metrics" aria-label="Resumo da coleta">
+      <article class="metric-card"><div class="metric-label">Última coleta <span class="metric-icon" aria-hidden="true">↺</span></div><div class="metric-number" id="latest-time">—</div><div class="metric-foot"><span id="latest-status" class="badge neutral">Consultando</span><span id="latest-date">—</span></div></article>
+      <article class="metric-card"><div class="metric-label">Eventos no banco <span class="metric-icon" aria-hidden="true">♫</span></div><div class="metric-number" id="plays-total">—</div><div class="metric-foot"><span id="latest-new" class="mini-positive">—</span><span>na última coleta</span></div></article>
+      <article class="metric-card"><div class="metric-label">Respostas RAW preservadas <span class="metric-icon" aria-hidden="true">▤</span></div><div class="metric-number" id="raw-total">—</div><div class="metric-foot"><span class="tiny-shield" aria-hidden="true">◇</span><span id="raw-size">Recebimentos com rastreabilidade</span></div></article>
+    </section>
+    <section class="activity-strip" aria-label="Atividade nas últimas 24 horas"><div><span class="small-dot"></span><strong>Últimas 24 horas</strong><span class="activity-total" id="activity-total">— execuções</span></div><div class="activity-breakdown"><span><i class="legend-dot success"></i><b id="activity-completed">—</b> concluídas</span><span><i class="legend-dot warning"></i><b id="activity-partial">—</b> com alerta</span><span><i class="legend-dot danger"></i><b id="activity-failed">—</b> falhas</span></div></section>
+    <section class="storage-card" aria-labelledby="storage-title">
+      <div class="section-header"><div><h2 id="storage-title">Armazenamento e backup</h2><p>Respostas idênticas compartilham conteúdo. Os recebimentos continuam registrados.</p></div><span class="badge neutral" id="storage-status">Consultando</span></div>
+      <div class="storage-grid">
+        <article><span>RAW ativos</span><strong id="storage-local">—</strong><small>Conteúdos e referências locais</small></article>
+        <article><span>Conteúdos únicos</span><strong id="storage-unique">—</strong><small id="storage-compression">Aguardando informação</small></article>
+        <article><span>Arquivo e backups</span><strong id="storage-archive">—</strong><small>Pasta privada deste projeto</small></article>
+        <article><span>Último backup verificado</span><strong class="storage-date" id="storage-backup">—</strong><small id="storage-snapshots">Aguardando verificação</small></article>
+      </div>
+      <div class="storage-footer"><p id="storage-savings">Calculando a economia de armazenamento.</p><p id="storage-policy">Consultando a política de arquivamento.</p><p>Os tamanhos medem arquivos catalogados, sem o espaço reservado pelo Docker. O arquivo está no mesmo projeto; uma cópia em outro disco é necessária para proteção contra falha física.</p></div>
+    </section>
+    <section class="history-card" id="history" aria-labelledby="history-title"><div class="section-header"><div><h2 id="history-title">Histórico de execuções <span class="count-label" id="history-count">—</span></h2><p>Cada busca registrada, com seu resultado e os arquivos de origem.</p></div><label class="filter-label"><span class="sr-only">Filtrar por status</span><select id="status-filter"><option value="all">Todos os status</option><option value="completed">Concluídas</option><option value="partial">Com alerta</option><option value="failed">Falhas</option><option value="running">Em andamento</option></select></label></div>
+      <div class="table-wrap"><table><thead><tr><th>Execução</th><th>Início</th><th>Duração</th><th class="numeric">Recebidos</th><th class="numeric">Novas plays</th><th class="numeric">Já existentes</th><th>Status</th><th><span class="sr-only">Detalhes</span></th></tr></thead><tbody id="history-body"><tr><td colspan="8" class="empty-state">Carregando suas execuções…</td></tr></tbody></table></div>
+      <div class="table-footer"><span id="pagination-summary">Consultando histórico</span><div class="pagination"><button class="page-button" id="previous-page" aria-label="Página anterior" disabled>←</button><span id="page-label">1 / 1</span><button class="page-button" id="next-page" aria-label="Próxima página" disabled>→</button></div></div>
+    </section>
+    <footer class="page-footer"><span><span class="small-dot" id="database-dot"></span><span id="database-status">Conectando ao PostgreSQL</span></span><span id="updated-at">A tela consulta o banco a cada 5 segundos.</span><span id="timezone-label">Horários locais</span></footer>
+  </main>
+  <dialog id="detail-dialog" aria-labelledby="detail-title"><div class="dialog-header"><div><div class="eyebrow">RASTREABILIDADE DA COLETA</div><h2 id="detail-title">Detalhes da execução</h2></div><button class="close-button" id="close-detail" aria-label="Fechar detalhes">×</button></div><div id="detail-content" class="detail-content"></div></dialog>
+  <dialog id="help-dialog" aria-labelledby="help-title"><div class="dialog-header"><div><div class="eyebrow">COMO ACOMPANHAR</div><h2 id="help-title">Seu coletor, à vista.</h2></div><button class="close-button" id="close-help" aria-label="Fechar guia">×</button></div><div class="help-content"><p><strong>O sinal confirma o agendador.</strong> Ele é atualizado a cada 5 segundos, inclusive enquanto uma coleta está em andamento. Se deixar de chegar, o monitor avisa.</p><p><strong>A próxima coleta usa o intervalo em execução.</strong> Fechar esta aba não interrompe o coletor. O computador e o Docker precisam continuar ligados.</p><p><strong>A atualização da página só consulta o banco.</strong> A busca no Spotify continua seguindo o intervalo do agendador.</p><p>Para iniciar a coleta automática, execute na pasta do projeto:</p><pre>docker compose --profile schedule up -d scheduler</pre><p>Depois de alterar o intervalo no <code>.env</code>, recrie o agendador:</p><pre>docker compose --profile schedule up -d --force-recreate scheduler</pre><p>Para conferir os arquivos originais:</p><pre>docker compose run --rm app php app raw:verify</pre><p><strong>Armazenamento:</strong> respostas idênticas compartilham conteúdo e são compactadas sem perdas. O backup diário é restaurado e conferido antes de liberar cópias ativas antigas. A pasta privada fica neste projeto e precisa também de cópia em outro disco.</p><p class="help-note">O histórico inclui coletas manuais, investigações da janela e reprocessamentos. A integridade dos arquivos é conferida pelo comando de verificação; o monitor exibe os registros de origem.</p></div></dialog>
+</body>
+</html>

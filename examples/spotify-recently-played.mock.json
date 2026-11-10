@@ -1,0 +1,119 @@
+{
+    "href": "https://api.spotify.com/v1/me/player/recently-played?limit=50",
+    "limit": 50,
+    "next": null,
+    "cursors": {
+        "after": "1704110880000",
+        "before": "1704110400000"
+    },
+    "items": [
+        {
+            "played_at": "2024-01-01T12:08:00.000Z",
+            "track": {
+                "type": "track",
+                "id": "SyntheticTrackA00000001",
+                "uri": "spotify:track:SyntheticTrackA00000001",
+                "name": "Faixa fictícia A",
+                "duration_ms": 180000,
+                "is_local": false,
+                "album": {
+                    "id": "SyntheticAlbum00000001",
+                    "uri": "spotify:album:SyntheticAlbum00000001",
+                    "name": "Álbum sintético",
+                    "release_date": "2024",
+                    "release_date_precision": "year"
+                },
+                "artists": [
+                    {
+                        "id": "SyntheticArtist0000001",
+                        "uri": "spotify:artist:SyntheticArtist0000001",
+                        "name": "Artista fictício A"
+                    },
+                    {
+                        "id": "SyntheticArtist0000002",
+                        "uri": "spotify:artist:SyntheticArtist0000002",
+                        "name": "Artista fictício B"
+                    }
+                ],
+                "external_ids": {
+                    "isrc": "ZZTEST0000001"
+                }
+            },
+            "context": {
+                "type": "playlist",
+                "uri": "spotify:playlist:SyntheticPlaylist00001"
+            }
+        },
+        {
+            "played_at": "2024-01-01T12:04:00.000Z",
+            "track": {
+                "type": "track",
+                "id": "SyntheticTrackB00000001",
+                "uri": "spotify:track:SyntheticTrackB00000001",
+                "name": "Faixa fictícia B",
+                "duration_ms": 180000,
+                "is_local": false,
+                "album": {
+                    "id": "SyntheticAlbum00000001",
+                    "uri": "spotify:album:SyntheticAlbum00000001",
+                    "name": "Álbum sintético",
+                    "release_date": "2024",
+                    "release_date_precision": "year"
+                },
+                "artists": [
+                    {
+                        "id": "SyntheticArtist0000001",
+                        "uri": "spotify:artist:SyntheticArtist0000001",
+                        "name": "Artista fictício A"
+                    },
+                    {
+                        "id": "SyntheticArtist0000002",
+                        "uri": "spotify:artist:SyntheticArtist0000002",
+                        "name": "Artista fictício B"
+                    }
+                ],
+                "external_ids": {
+                    "isrc": "ZZTEST0000001"
+                }
+            },
+            "context": null
+        },
+        {
+            "played_at": "2024-01-01T12:00:00.000Z",
+            "track": {
+                "type": "track",
+                "id": "SyntheticTrackA00000001",
+                "uri": "spotify:track:SyntheticTrackA00000001",
+                "name": "Faixa fictícia A",
+                "duration_ms": 180000,
+                "is_local": false,
+                "album": {
+                    "id": "SyntheticAlbum00000001",
+                    "uri": "spotify:album:SyntheticAlbum00000001",
+                    "name": "Álbum sintético",
+                    "release_date": "2024",
+                    "release_date_precision": "year"
+                },
+                "artists": [
+                    {
+                        "id": "SyntheticArtist0000001",
+                        "uri": "spotify:artist:SyntheticArtist0000001",
+                        "name": "Artista fictício A"
+                    },
+                    {
+                        "id": "SyntheticArtist0000002",
+                        "uri": "spotify:artist:SyntheticArtist0000002",
+                        "name": "Artista fictício B"
+                    }
+                ],
+                "external_ids": {
+                    "isrc": "ZZTEST0000001"
+                }
+            },
+            "context": {
+                "type": "playlist",
+                "uri": "spotify:playlist:SyntheticPlaylist00001"
+            }
+        }
+    ]
+}

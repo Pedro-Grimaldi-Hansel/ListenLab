@@ -1,0 +1,29 @@
+{
+    "name": "listenlab/personal-spotify-data",
+    "description": "Immutable Spotify RAW collection and rebuildable PostgreSQL music history",
+    "type": "project",
+    "license": "proprietary",
+    "require": {
+        "php": "^8.4",
+        "ext-curl": "*",
+        "ext-json": "*",
+        "ext-pdo": "*",
+        "ext-pdo_pgsql": "*",
+        "ext-zlib": "*",
+        "guzzlehttp/guzzle": "^7.10",
+        "symfony/console": "^7.3",
+        "vlucas/phpdotenv": "^5.6"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.5"
+    },
+    "autoload": {"psr-4": {"ListenLab\\": "src/"}},
+    "autoload-dev": {"psr-4": {"ListenLab\\Tests\\": "tests/"}},
+    "scripts": {
+        "test": "phpunit --testsuite unit",
+        "test:integration": "phpunit --testsuite integration",
+        "test:all": "phpunit",
+        "lint": "find src tests public bin monitor -name '*.php' -print0 | xargs -0 -n1 php -l && php -l app && php -l bootstrap.php"
+    },
+    "config": {"sort-packages": true, "allow-plugins": {}}
+}

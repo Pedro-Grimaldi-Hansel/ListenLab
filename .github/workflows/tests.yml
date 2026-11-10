@@ -1,0 +1,33 @@
+name: PHP and PostgreSQL
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-bookworm
+        env:
+          POSTGRES_DB: listenlab_test
+          POSTGRES_USER: listenlab
+          POSTGRES_PASSWORD: synthetic_ci_password
+        ports: ["5432:5432"]
+        options: --health-cmd="pg_isready -U listenlab -d listenlab_test" --health-interval=2s --health-timeout=3s --health-retries=30
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      POSTGRES_DB: listenlab
+      POSTGRES_USER: listenlab
+      POSTGRES_PASSWORD: synthetic_ci_password
+      TEST_DB_NAME: listenlab_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          extensions: curl, pdo_pgsql, mbstring, dom, xml, xmlwriter
+          coverage: none
+          tools: composer:v2
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - run: composer validate --strict
+      - run: composer lint
+      - run: composer test:all
