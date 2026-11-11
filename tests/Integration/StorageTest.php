@@ -62,15 +62,15 @@ final class StorageTest extends TestCase
         return ['id'=>$id,'path'=>$path,'sha256'=>hash('sha256',$body),'body'=>$body];
     }
 
-    public function testIdenticalResponsesShareOneObjectAndKeepAuditableOccurrences(): void
+    public function testIdenticalResponsesShareOneObjectWithoutRepeatingItemAudit(): void
     {
         $this->collect();$this->collect();
         self::assertSame(1,(int)$this->db->query('SELECT count(*) FROM raw_objects')->fetchColumn());
         self::assertSame(2,(int)$this->db->query('SELECT count(*) FROM raw_storage_refs')->fetchColumn());
-        self::assertSame(6,(int)$this->db->query('SELECT count(*) FROM ingestion_records')->fetchColumn());
+        self::assertSame(3,(int)$this->db->query('SELECT count(*) FROM ingestion_records')->fetchColumn());
         self::assertSame(3,(int)$this->db->query('SELECT count(*) FROM plays')->fetchColumn());
         self::assertSame('gzip',$this->db->query('SELECT encoding FROM raw_objects')->fetchColumn());
-        self::assertSame(6,(int)$this->db->query('SELECT count(*) FROM ingestion_records WHERE payload IS NULL AND payload_sha256 IS NOT NULL')->fetchColumn());
+        self::assertSame(3,(int)$this->db->query('SELECT count(*) FROM ingestion_records WHERE payload IS NULL AND payload_sha256 IS NOT NULL')->fetchColumn());
     }
 
     public function testLegacyCompactionPreservesTheIndexAndRestoresAllRawPaths(): void
@@ -164,6 +164,46 @@ final class StorageTest extends TestCase
         $backup->create();$current=$backup->create()['snapshot'];$backup->rotate($current,2);
         self::assertSame('preserve me',file_get_contents($note));
         self::assertFileExists($this->raw->archiveRoot.'/snapshots/'.$first.'/database.dump');
+    }
+
+    public function testBackupRotationPreservesSnapshotsWithHiddenEntries(): void
+    {
+        $this->collect();$backup=new RawBackup($this->db,$this->config,$this->raw);
+        $first=$backup->create()['snapshot'];$directory=$this->raw->archiveRoot.'/snapshots/'.$first;
+        file_put_contents($directory.'/.owner-note','preserve hidden file');
+        mkdir($directory.'/.private');file_put_contents($directory.'/.private/note','preserve hidden directory');
+        $backup->create();$current=$backup->create()['snapshot'];$backup->rotate($current,2);
+        self::assertSame('preserve hidden file',file_get_contents($directory.'/.owner-note'));
+        self::assertSame('preserve hidden directory',file_get_contents($directory.'/.private/note'));
+        self::assertFileExists($directory.'/database.dump');
+        self::assertFileExists($directory.'/manifest.json');
+        self::assertNotSame([],glob($directory.'/verified-*.json'));
+    }
+
+    public function testInitialRawCorruptionIsRecordedAndVisibleWithoutRepeatedDailyAttempts(): void
+    {
+        $this->collect();$maintenance=new RawMaintenance($this->db,$this->config,$this->raw);
+        $maintenance->run(true);
+        $this->db->exec("UPDATE raw_storage_runs SET started_at=now()-interval '25 hours'");
+        $object=glob($this->raw->root.'/objects/*/*.gz')[0];chmod($object,0600);file_put_contents($object,'corrupt synthetic object');
+        try{$maintenance->run(true,true,30,true);self::fail('Corruption must fail.');}catch(AppError){}
+        self::assertSame(2,(int)$this->db->query('SELECT count(*) FROM raw_storage_runs')->fetchColumn());
+        $last=$this->db->query('SELECT status,finished_at,backup_verified FROM raw_storage_runs ORDER BY id DESC LIMIT 1')->fetch(PDO::FETCH_ASSOC);
+        self::assertSame('failed',$last['status']);self::assertNotNull($last['finished_at']);self::assertFalse($last['backup_verified']);
+        $view=(new \ListenLab\Monitoring\Monitor($this->db,$this->config))->overview()['storage'];
+        self::assertSame('failed',$view['maintenance']['status']);
+        self::assertTrue($maintenance->run(true,true,30,true)['skipped']);
+        self::assertSame(2,(int)$this->db->query('SELECT count(*) FROM raw_storage_runs')->fetchColumn());
+        self::assertSame('corrupt synthetic object',file_get_contents($object));
+    }
+
+    public function testDryRunDoesNotRegisterMaintenanceEvenWhenRawIsCorrupt(): void
+    {
+        $this->collect();$maintenance=new RawMaintenance($this->db,$this->config,$this->raw);
+        self::assertTrue($maintenance->run()['dry_run']);
+        $object=glob($this->raw->root.'/objects/*/*.gz')[0];chmod($object,0600);file_put_contents($object,'corrupt synthetic object');
+        try{$maintenance->run();self::fail('Corruption must fail.');}catch(AppError){}
+        self::assertSame(0,(int)$this->db->query('SELECT count(*) FROM raw_storage_runs')->fetchColumn());
     }
 
     public function testAnOccurrenceCannotBeReinterpretedWithAnotherPayload(): void

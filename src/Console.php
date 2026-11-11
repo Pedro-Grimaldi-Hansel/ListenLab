@@ -29,7 +29,21 @@ final class Console
         $app->setAutoExit(false);
         $db = static fn () => Database::connect($config);
         $raw = new RawStore($config->path('RAW_STORAGE_PATH', 'storage/raw'),$config->path('RAW_ARCHIVE_PATH','storage/archive'));
-        $oauth = new OAuth($config, new GuzzleTransport());
+        $accounts = static fn () => new \ListenLab\Spotify\AccountGuard($db(), new GuzzleTransport());
+        $oauth = new OAuth($config, new GuzzleTransport(), static fn (string $token) => $accounts()->verify($token));
+
+        $app->add((new Command('spotify:account:bind'))->setDescription('Vincula este dataset à conta estável do token atual; recusa trocar um vínculo existente.')
+            ->setCode(function (InputInterface $input, OutputInterface $output) use ($config, $db, $oauth): int {
+                (new \ListenLab\Spotify\AccountGuard($db(), new GuzzleTransport()))->verify($oauth->accessToken(), true);
+                $output->writeln('Conta atual vinculada e verificada. O histórico e as chaves dos eventos foram preservados.');
+                return 0;
+            }));
+
+        $app->add((new Command('monitor:provision'))->setDescription('Cria o usuário somente leitura e o secret privado exclusivo do monitor.')
+            ->setCode(function (InputInterface $input, OutputInterface $output) use ($config, $db): int {
+                self::json($output, (new \ListenLab\Monitoring\MonitorAccess($db(), $config))->provision());
+                return 0;
+            }));
 
         $app->add((new Command('db:migrate'))->setDescription('Aplica migrations SQL com transações, lock e checksum.')
             ->setCode(function (InputInterface $input, OutputInterface $output) use ($config, $db): int {
@@ -68,12 +82,12 @@ final class Console
                 ->addOption('max-pages', null, InputOption::VALUE_REQUIRED, 'Orçamento de páginas; não indica cobertura completa.')
                 ->addOption('limit', null, InputOption::VALUE_REQUIRED, 'Itens por página (1–50).')
                 ->addOption('json', null, InputOption::VALUE_NONE, 'Saída estruturada.')
-                ->setCode(function (InputInterface $input, OutputInterface $output) use ($config, $db, $raw, $oauth, $operation): int {
+                ->setCode(function (InputInterface $input, OutputInterface $output) use ($config, $db, $raw, $oauth, $accounts, $operation): int {
                     $maxPages = $input->getOption('max-pages') !== null
                         ? self::positive($input->getOption('max-pages'), 10000)
                         : $config->integer($operation === 'sync' ? 'SYNC_MAX_PAGES' : 'PROBE_MAX_PAGES', $operation === 'sync' ? 20 : 100, 1, 10000);
                     $limit = $input->getOption('limit') !== null ? self::positive($input->getOption('limit'), 50) : $config->integer('SPOTIFY_PAGE_LIMIT', 50, 1, 50);
-                    $api = new Api(new GuzzleTransport(), $oauth, $config->integer('HTTP_MAX_RETRIES', 2, 0, 5), $config->integer('HTTP_MAX_RETRY_WAIT_SECONDS', 30, 0, 60));
+                    $api = new Api(new GuzzleTransport(), new \ListenLab\Spotify\AccountTokens($oauth, $accounts()), $config->integer('HTTP_MAX_RETRIES', 2, 0, 5), $config->integer('HTTP_MAX_RETRY_WAIT_SECONDS', 30, 0, 60));
                     $report = (new Collector($db(), $raw, $api))->collect($operation, $maxPages, $limit);
                     return self::report($config, $input, $output, $report);
                 }));

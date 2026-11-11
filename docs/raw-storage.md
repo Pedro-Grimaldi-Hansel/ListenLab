@@ -14,7 +14,7 @@ docker compose run --rm app php app ingest:replay 1
 
 `raw:read` recebe o ID de `raw_artifacts` e escreve exatamente o corpo, sem acrescentar quebra de linha. Replay e verificação funcionam tanto com arquivos antigos como com referências, gzip e corpos arquivados.
 
-As novas linhas de `ingestion_records` preservam artefato, posição, hash canônico do item e resultado de processamento, sem outra cópia JSONB do payload. Linhas anteriores não são apagadas. O banco continua armazenando auditoria, metadados e plays; deduplicar RAW não torna o armazenamento constante.
+As novas linhas de `ingestion_records` preservam artefato, posição, hash canônico e resultado, sem outra cópia JSONB. Desde a [auditoria enxuta](auditoria-enxuta.md), itens completos já conhecidos na mesma versão do normalizador ficam apenas nos contadores da execução. Conteúdo novo, variantes, incompletos e erros conservam detalhe; linhas antigas não são apagadas. O banco continua crescendo com novos eventos e metadados; todos os RAW e recibos permanecem preservados.
 
 ## Configuração atual
 

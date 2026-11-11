@@ -31,6 +31,18 @@ final class Config
         return $value;
     }
 
+    public function secret(string $key, string $defaultFile = ''): string
+    {
+        $file = $this->get($key . '_FILE', $defaultFile);
+        if ($file === '') return $this->required($key);
+        if (!preg_match('~^(?:[A-Za-z]:[\\\\/]|/)~', $file)) $file = $this->root . '/' . $file;
+        $value = is_file($file) && is_readable($file) ? file_get_contents($file) : false;
+        if ($value === false || rtrim($value, "\r\n") === '') {
+            throw new AppError('Secret ' . $key . ' indisponível. Confira o arquivo privado configurado.');
+        }
+        return rtrim($value, "\r\n");
+    }
+
     public function integer(string $key, int $default, int $min, int $max): int
     {
         $value = filter_var($this->get($key, (string) $default), FILTER_VALIDATE_INT);

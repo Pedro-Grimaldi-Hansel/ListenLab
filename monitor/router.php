@@ -4,7 +4,16 @@ declare(strict_types=1);
 header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: no-referrer');
+header('Cross-Origin-Resource-Policy: same-origin');
 header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'");
+require_once dirname(__DIR__) . '/src/Monitoring/LocalRequest.php';
+$publishedPort = filter_var(getenv('MONITOR_PORT') ?: ($_SERVER['SERVER_PORT'] ?? ''), FILTER_VALIDATE_INT);
+if ($publishedPort === false || !\ListenLab\Monitoring\LocalRequest::allows($_SERVER, $publishedPort)) {
+    http_response_code(403);
+    header('Content-Type: application/json; charset=utf-8');
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'HEAD') echo '{"error":"Acesso permitido somente pela origem local do monitor."}';
+    exit;
+}
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 if (!in_array($_SERVER['REQUEST_METHOD'] ?? 'GET', ['GET','HEAD'], true)) {
     http_response_code(405);
@@ -12,10 +21,11 @@ if (!in_array($_SERVER['REQUEST_METHOD'] ?? 'GET', ['GET','HEAD'], true)) {
     exit;
 }
 if ($path === '/') {
-    header('Location: /dashboard', true, 302);
+    header('Location: /analytics', true, 302);
     exit;
 }
-$files = ['/dashboard' => ['index.html','text/html; charset=utf-8'], '/dashboard/' => ['index.html','text/html; charset=utf-8'], '/assets/style.css' => ['assets/style.css','text/css; charset=utf-8'], '/assets/app.js' => ['assets/app.js','application/javascript; charset=utf-8'], '/assets/theme.js' => ['assets/theme.js','application/javascript; charset=utf-8'], '/assets/tests.js' => ['assets/tests.js','application/javascript; charset=utf-8']];
+$files = ['/dashboard' => ['index.html','text/html; charset=utf-8'], '/dashboard/' => ['index.html','text/html; charset=utf-8'], '/analytics' => ['analytics.html','text/html; charset=utf-8'], '/analytics/' => ['analytics.html','text/html; charset=utf-8'], '/assets/analytics.js' => ['assets/analytics.js','application/javascript; charset=utf-8'], '/assets/analytics.css' => ['assets/analytics.css','text/css; charset=utf-8'], '/assets/style.css' => ['assets/style.css','text/css; charset=utf-8'], '/assets/app.js' => ['assets/app.js','application/javascript; charset=utf-8'], '/assets/theme.js' => ['assets/theme.js','application/javascript; charset=utf-8'], '/assets/tests.js' => ['assets/tests.js','application/javascript; charset=utf-8']];
+$files['/assets/icons.svg'] = ['assets/icons.svg', 'image/svg+xml'];
 if (isset($files[$path])) {
     header('Content-Type: ' . $files[$path][1]);
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'HEAD') {
@@ -33,12 +43,20 @@ if ($path === '/tests' || $path === '/tests/') {
 header('Content-Type: application/json; charset=utf-8');
 $db = null;
 try {
-    $config = require dirname(__DIR__) . '/bootstrap.php';
-    $db = \ListenLab\Database::connect($config);
+    $config = require __DIR__ . '/bootstrap.php';
+    $db = \ListenLab\Database::monitor($config);
     $db->beginTransaction();
-    $db->exec('SET TRANSACTION READ ONLY');
+    $db->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY');
     $monitor = new \ListenLab\Monitoring\Monitor($db, $config);
-    if ($path === '/api/status') {
+    if ($path === '/api/analytics') {
+        try {
+            $period = \ListenLab\Analytics\Period::fromQuery($_GET, $config->get('MONITOR_TIMEZONE', 'America/Sao_Paulo'));
+            $data = (new \ListenLab\Analytics\Analytics($db))->overview($period);
+        } catch (\InvalidArgumentException $error) {
+            http_response_code(400);
+            $data = ['error' => $error->getMessage()];
+        }
+    } elseif ($path === '/api/status') {
         $data = $monitor->overview();
     } elseif ($path === '/api/batches') {
         $page = filter_var($_GET['page'] ?? '1', FILTER_VALIDATE_INT);

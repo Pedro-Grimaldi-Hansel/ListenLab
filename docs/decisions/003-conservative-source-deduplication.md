@@ -2,6 +2,8 @@
 
 Status: aceita para a primeira vertical slice. Data: 10/11/2026.
 
+Atualização em 11/11/2026: a [decisão 008](008-compact-item-audit.md) substitui a gravação de uma ocorrência por item repetido por contadores de execução quando o conteúdo completo já é conhecido. Os parágrafos abaixo descrevem o modelo original; identidade, locks e constraints continuam válidos.
+
 Chave API v1: SHA-256 de uma representação determinística contendo versão da chave, `played_at` validado em UTC com microssegundos e identidade da track. A identidade usa Spotify ID quando fornecido; senão URI; sem ambos, fingerprint conservador do payload completo. Nomes/contexto/metadados mutáveis não participam da chave quando há identidade externa.
 
 `play_evidence` tem `UNIQUE(source_id, source_record_key)`. Usamos transações por item, lock transacional por chave e INSERT com ON CONFLICT. O coletor também tem um advisory lock de sessão para serializar execuções da primeira versão. Nenhuma garantia depende de um `exists()` PHP, checkpoint, cron ou memória de processo.

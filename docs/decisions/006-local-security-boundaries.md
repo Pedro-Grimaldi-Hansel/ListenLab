@@ -1,0 +1,19 @@
+# 006 — Isolamento do monitor e vínculo da conta pessoal
+
+Status: aceita para as correções solicitadas pelo proprietário em 10/11/2026. Complementa as decisões 003, 004 e 005. O sistema continua exclusivamente local.
+
+Atualização em 11/11/2026: a [decisão 007](007-local-listening-analytics.md) amplia explicitamente a leitura para datas e colunas selecionadas do catálogo, atendendo ao pedido de rankings e distribuições. A descrição abaixo registra o limite operacional original.
+
+O monitor deixa de compartilhar ambiente e filesystem com a administração. Usa imagem mínima, usuário PostgreSQL exclusivo sem privilégios administrativos, código e dependências em leitura, diretório temporário limitado e um único secret de conexão. Não carrega o `.env` do proprietário. Os grants permitem consultas operacionais, mas não payloads de ingestão nem horários individuais de plays. A transação READ ONLY continua como proteção adicional; a recusa de escrita depende também dos grants reais. O provisionamento preserva seu secret, remove privilégios extras da identidade gerenciada e recusa reutilizar usuários PostgreSQL alheios.
+
+A origem do monitor precisa ter host local e a porta publicada. Hosts externos, origens externas e consultas cross-site são rejeitados antes do banco. Navegações explícitas para as páginas estáticas são permitidas, mantendo a abertura normal por links. Isso não autentica outros processos locais: o limite continua sendo uma instalação pessoal em máquina confiável. Não há autorização para publicar a aplicação ou seus dados.
+
+Uma tabela privada vincula o dataset a SHA-256 do `account_id` estável do Spotify. O identificador não é inferido de e-mail, nome ou `id` legado. O perfil não entra no RAW musical. A autorização candidata é verificada antes de substituir tokens; a coleta verifica cada novo access token, reaproveitando o resultado para o mesmo token. Um vínculo existente não pode mudar pelo fluxo da aplicação. O banco também rejeita alteração do hash da conta, DELETE e TRUNCATE dessa tabela.
+
+Um histórico anterior ao vínculo exige o comando explícito `spotify:account:bind`, usando o token que já operava o dataset. Isso fixa a conta para operações futuras; não prova retrospectivamente a titularidade de cada RAW antigo, pois a resposta musical não identifica a conta. Na instalação do proprietário, a vinculação foi feita com o token existente. Não houve alteração das plays, das evidências ou da versão da chave. Múltiplas contas continuam exigindo outra decisão e escopo de fonte/chave.
+
+A rotação de snapshots enumera todas as entradas, incluindo ocultas, e recusa diretórios com conteúdo desconhecido. Uma tentativa de manutenção aplicada é registrada antes da varredura, inclusive se a verificação inicial falhar. A simulação continua sem gravar execuções. O índice RAW também passa a recusar TRUNCATE. O administrador ainda controla banco e filesystem; essas proteções não substituem backup externo ou armazenamento imutável.
+
+As imagens PHP usam builds em estágios e atualizações da base. O banco conserva PostgreSQL 17 e Bookworm para manter a compatibilidade do volume e das configurações de locale, substituindo somente o `gosu` por versão compilada com toolchain e dependências corrigidas. Não se atualiza o major do banco nem se exclui volume para resolver um alerta de scanner.
+
+A CI fixa Actions por SHA, usa permissões mínimas, audita Composer e analisa imagens. Exibe os avisos altos/críticos sem correção disponível e reprova os que já têm uma versão corrigida. Avisos de componentes sem patch na distribuição precisam de triagem documentada e revisão periódica; eles não são declarados corrigidos apenas por não haver um caminho HTTP conhecido. O proprietário informou não ter outro disco disponível, portanto a cópia externa permanece pendente.

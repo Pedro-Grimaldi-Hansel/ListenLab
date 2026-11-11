@@ -2,13 +2,17 @@
 
 Fundação pessoal de dados musicais em PHP 8.4 + PostgreSQL 17. A primeira versão coleta a API oficial do Spotify, preserva cada resposta original e constrói um histórico relacional auditável. O RAW é a fonte da verdade; as tabelas normalizadas podem ser reconstruídas.
 
-**Estado em 10/11/2026:** monitor local no Windows, com 88 testes e 727 assertions passando em banco separado. A coleta usa intervalo de 15 minutos; RAW idênticos compartilham conteúdo, com compressão sem perdas e arquivo privado após backup restaurado e verificado. Composer, lint PHP, HTTP e integridade dos RAW foram validados. A conferência visual no navegador permanece pendente por bloqueio da ferramenta. O primeiro probe relatado observou 50 eventos distintos em aproximadamente três horas, seguido de uma página vazia ao retroceder. [Evidência e limites do resultado](docs/experiment-results.md).
+**Estado em 11/11/2026:** monitor e análises locais no Windows, com isolamento de arquivos e usuário PostgreSQL de leitura; **120 testes e 1.231 assertions** passando em banco separado. A coleta usa intervalo de 15 minutos e impede misturar contas Spotify. RAW idênticos compartilham conteúdo, com compressão sem perdas e arquivo privado após backup restaurado e verificado. A rotação preserva arquivos ocultos e falhas na varredura inicial são registradas. [Correções, validações e limites de segurança](docs/correcoes-seguranca-2026-11-10.md). A interface foi reformulada e conferida no navegador em celular e desktop, incluindo tela ampla, temas, filtros e diálogos. O primeiro probe relatado observou 50 eventos distintos em aproximadamente três horas, seguido de uma página vazia ao retroceder. [Evidência e limites do resultado](docs/experiment-results.md).
 
 O projeto agora inclui um **monitor local de coleta** no navegador: sinal do agendador, intervalo em execução, contagem regressiva para a próxima busca e histórico com filtros e detalhes. [Instalação e uso do monitor](docs/monitor.md).
 
-O dashboard operacional fica em `/dashboard` e as explicações da suíte em `/tests`, em páginas separadas. A entrada `/` redireciona ao dashboard. Os botões **Dashboard** e **Testes** permitem alternar entre as telas. A paleta usa verde vivo, preto e cinza inspirados no Spotify, com temas claro e escuro.
+**Análises é a página inicial:** `/` redireciona para `/analytics`. O menu único reúne **Análises**, **Dashboard** (`/dashboard`, operação da coleta) e **Testes** (`/tests`, explicações da suíte). A paleta usa verde, preto e cinza inspirados no Spotify, com tema escuro inicial e opção clara. As [análises](docs/analises.md) trazem rankings em abas de faixas/artistas/álbuns, resumo do período e gráficos por horário, dia da semana e data. A navegação se adapta a telas pequenas. [Decisão de interface](docs/decisions/009-analytics-first-interface.md).
+
+A ingestão agora omite linhas individuais para repetições completas já conhecidas, mantendo os contadores, os RAW e todos os registros anteriores. [Política de auditoria enxuta](docs/auditoria-enxuta.md).
 
 Para retomar o trabalho nesta pasta, leia [Continuar no VS Code](docs/continuar-no-vscode.md).
+
+A revisão inicial está em [Avaliação de segurança e confiabilidade](docs/auditoria-2026-11-10.md), seguida pelas [correções aplicadas](docs/correcoes-seguranca-2026-11-10.md). Para entender o fluxo completo, consulte [Como o ListenLab funciona hoje](docs/funcionamento-atual.md).
 
 Para ver o formato recebido sem expor histórico pessoal, consulte o [exemplo JSON com dados fictícios](examples/README.md). As regras para manter credenciais, RAW e banco fora do Git estão em [Git e dados privados](docs/git-privacy.md).
 
@@ -23,6 +27,7 @@ docker compose build
 docker compose up -d db
 docker compose run --rm app composer install
 docker compose run --rm app php app db:migrate
+docker compose run --rm app php app monitor:provision
 ```
 
 O banco fica em um volume persistente e sua porta é publicada somente em `127.0.0.1`. A aplicação usa o usuário local 1000 por padrão; ajuste `LOCAL_UID`/`LOCAL_GID` se necessário. O host do banco é `db` dentro dos containers e `127.0.0.1` no PHP local. Alterar a senha no `.env` não altera uma senha de um volume PostgreSQL já inicializado.
@@ -64,7 +69,7 @@ Não passe a URL em argumentos do shell. O state expira em 10 minutos e só pode
 
 O serviço de callback desabilita o access log do servidor PHP de desenvolvimento para não registrar o code OAuth na query string. Em um servidor definitivo, configure a mesma omissão de query/credenciais nos logs.
 
-Esta versão tem **uma conta por banco/diretório de armazenamento**. Use sempre a mesma conta ao reautorizar. Não há suporte a alternar contas nem a misturar seus históricos; a identidade da fonte assume esse escopo pessoal. Antes de oferecer múltiplas contas, será necessário incluir a identidade da conta na fonte/chave (ver [decisão 003](docs/decisions/003-conservative-source-deduplication.md)).
+Esta versão tem **uma conta por banco/diretório de armazenamento**. O backend verifica o `account_id` estável e guarda seu hash no banco, recusando outra conta antes de substituir a autorização ou aceitar eventos. A verificação de perfil é reutilizada para o mesmo access token e refeita quando ele muda. O perfil não entra nos RAW musicais. Em uma instalação já autorizada que recebe esta atualização, execute `php app spotify:account:bind` com o token atual antes de reautorizar ou retomar a coleta; nesta instalação esse vínculo já foi aplicado. As chaves dos eventos existentes permanecem iguais. Não há suporte a múltiplas contas (ver [decisão 006](docs/decisions/006-local-security-boundaries.md)).
 
 ## Primeira coleta e inspeção
 
@@ -77,7 +82,7 @@ docker compose run --rm app php app ingestion:list
 docker compose run --rm app php app raw:verify
 ```
 
-Na repetição imediata do mesmo conjunto, `new_source_records` e `plays_created` devem ser zero. Respostas sobrepostas continuam arquivadas e suas ocorrências continuam auditáveis. `history:list --details` inclui `played_at`, track ID/URI/name, artistas ordenados, álbum, duração da track, contexto, `is_local` e fonte. Datas de consulta e relatórios usam UTC.
+Na repetição imediata do mesmo conjunto, `new_source_records` e `plays_created` devem ser zero. Itens completos com conteúdo já processado entram nos contadores sem outra linha por item; variantes, erros e dados incompletos conservam detalhe. `audit_records_created` e `duplicate_records_omitted` mostram a diferença no relatório. Todas as respostas RAW e os registros anteriores ficam preservados. [Auditoria enxuta](docs/auditoria-enxuta.md). `history:list --details` inclui `played_at`, track ID/URI/name, artistas ordenados, álbum, duração da track, contexto, `is_local` e fonte. Datas de consulta e relatórios usam UTC.
 
 ```sql
 SELECT p.played_at, t.name
@@ -188,7 +193,8 @@ Spotify API → conteúdo RAW + referência → batch/artefato/ocorrências
 - [003 — Deduplicação conservadora por fonte](docs/decisions/003-conservative-source-deduplication.md).
 - [004 — Monitor local e sinal do agendador](docs/decisions/004-local-collection-monitor.md).
 - [005 — Conteúdo RAW compartilhado e arquivamento verificado](docs/decisions/005-shared-raw-storage.md).
+- [008 — Auditoria detalhada para conteúdo novo e exceções](docs/decisions/008-compact-item-audit.md).
 
 `storage/raw`, `tokens`, relatórios, `.env`, dumps e diretórios de dados pessoais ficam fora do Git. Não coloque exports na raiz do repositório. Guarde-os em `storage/raw/spotify/exports/` e faça backup privado dos RAW, do índice de artefatos e do banco. Permissões de arquivo protegem contra alterações acidentais; não substituem backup ou armazenamento WORM.
 
-Exports Account/Extended aguardam arquivos reais: primeiro inspecionar estruturas, tipos, timestamps, mídias e sobreposição. Importadores, matching cross-source, agrupamento de obras/gravações, análises e dashboards são etapas futuras. Não foi definida equivalência entre `API.played_at` e `Extended.ts`.
+Exports Account/Extended aguardam arquivos reais: primeiro inspecionar estruturas, tipos, timestamps, mídias e sobreposição. Importadores, matching cross-source e agrupamento de obras/gravações são etapas futuras. O monitor operacional e os rankings/distribuições locais já estão disponíveis. Não foi definida equivalência entre `API.played_at` e `Extended.ts`.

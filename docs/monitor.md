@@ -1,19 +1,20 @@
 # Monitor local do ListenLab
 
-O monitor permite acompanhar a operação do coletor em `http://127.0.0.1:8787`. Ele exibe o sinal do agendador, o intervalo efetivamente carregado pelo processo, a próxima busca prevista, a última coleta e o histórico de batches. Não inclui rankings, gráficos de hábitos musicais ou regras analíticas de plays.
+O monitor permite acompanhar a operação do coletor em `http://127.0.0.1:8787`. O dashboard exibe o sinal do agendador, o intervalo efetivamente carregado pelo processo, a próxima busca prevista, a última coleta e o histórico de batches. A página separada de [Análises](analises.md) apresenta rankings e distribuições das reproduções registradas.
 
-## Dashboard e testes em páginas separadas
+## Dashboard, análises e testes em páginas separadas
 
+- **Análises (início):** `http://127.0.0.1:8787/analytics`, com rankings de faixas/artistas/álbuns, distribuição por hora/dia e filtros de período.
 - **Dashboard:** `http://127.0.0.1:8787/dashboard`, com os dados operacionais da coleta.
 - **Testes:** `http://127.0.0.1:8787/tests`, com as explicações e os comandos da suíte.
 
-A entrada `/` redireciona para `/dashboard`. Use os botões Dashboard/Testes no topo ou o menu lateral para trocar de página. Cada tela carrega seu conteúdo e seu script; o catálogo tem apresentação de documentação, separada dos indicadores operacionais.
+A entrada `/` e o nome ListenLab levam a Análises. Use o menu **Análises / Dashboard / Testes** para trocar de página. No desktop ele fica na lateral; em telas pequenas, no topo. Cada tela carrega seu conteúdo e seu script. O Dashboard prioriza o estado da coleta e o histórico; armazenamento e backup ficam abaixo. O catálogo de testes tem busca e grupos expansíveis.
 
 A paleta combina verde `#1DB954`, destaques `#1ED760` e fundos pretos/cinza no modo escuro. A inspiração vem das [referências de design do Spotify](https://developer.spotify.com/documentation/design). O nome e o símbolo continuam sendo do ListenLab.
 
 ## Tema e tela de testes
 
-Use **Modo escuro** ou **Modo claro** no menu para alternar o tema. A escolha fica salva neste navegador e vale também na tela de testes. Sem uma escolha salva, o monitor acompanha o tema do sistema. Se o navegador bloquear o armazenamento, o botão ainda funciona na página aberta.
+Use **Tema claro** ou **Tema escuro** no menu para alternar o tema. O botão indica a próxima opção. A escolha fica salva neste navegador e vale nas três telas; escolhas anteriores são preservadas. Sem uma escolha salva, o monitor inicia no escuro. Se o navegador bloquear o armazenamento, o botão ainda funciona na página aberta.
 
 O item **Testes** abre `http://127.0.0.1:8787/tests`. Cada grupo explica os cenários existentes e informa seu arquivo de origem. Use a busca por assunto ou filtre entre testes unitários e de integração. Os comandos no final da tela podem ser copiados para o terminal.
 
@@ -28,10 +29,17 @@ Na pasta do projeto, execute:
 ```powershell
 docker compose build
 docker compose run --rm app php app db:migrate
+docker compose run --rm app php app monitor:provision
+# Em uma instalação já autorizada, vincule a conta do token atual uma única vez.
+docker compose run --rm app php app spotify:account:bind
 docker compose --profile schedule --profile monitor up -d --force-recreate scheduler monitor
 ```
 
-Abra **http://127.0.0.1:8787**. O rebuild inclui sinais de encerramento e ferramentas PostgreSQL 17 para verificar a restauração dos backups; não exige Node.js no seu computador. A migration 002 acrescenta o estado do agendador; 003 e 004 acrescentam o índice de conteúdo compartilhado, medidas e hashes de payload. Nenhuma tabela de eventos ou RAW é apagada.
+Abra **http://127.0.0.1:8787**. O rebuild inclui sinais de encerramento e ferramentas PostgreSQL 17 para verificar a restauração dos backups; não exige Node.js no seu computador. As migrations 005 e 006 acrescentam proteção contra TRUNCATE do índice RAW e vínculo de conta, sem apagar eventos. O banco mantém PostgreSQL 17 e Bookworm; a imagem PHP passa a Trixie com ferramentas de build separadas. [Procedimentos e limites da correção](correcoes-seguranca-2026-11-10.md).
+
+`monitor:provision` cria uma senha aleatória exclusiva em `storage/secrets/monitor-db-password`, ignorada pelo Git. O monitor recebe esse arquivo como Docker secret e só monta `src`, `monitor` e `vendor` em leitura. Ele não carrega `.env` e não recebe secrets Spotify, tokens, RAW ou arquivo de backup. O usuário PostgreSQL dedicado não pode gravar e só consulta os dados operacionais e as colunas de data/catálogo necessárias às análises. Execute o provisionamento depois das migrations ao preparar outra instalação e após atualizar as permissões analíticas. Um nome de usuário existente que não pertença à aplicação é recusado.
+
+O servidor exige um host local e a porta publicada. Origens externas e consultas cross-site à API são recusadas; abrir as páginas por uma navegação explícita continua permitido. Ao iniciar o monitor fora do Compose, forneça as variáveis de conexão e `MONITOR_DB_PASSWORD_FILE` explicitamente: ele não usa o ambiente administrativo do `.env`.
 
 Para iniciar apenas a visualização, sem iniciar o agendador:
 
@@ -66,7 +74,7 @@ Execuções interrompidas abruptamente podem continuar com status `running` no h
 
 ## Frequência e funcionamento
 
-A tela consulta o banco a cada cinco segundos, enquanto a aba está visível. Isso não dispara uma chamada ao Spotify. O coletor segue `SYNC_INTERVAL_SECONDS`, mesmo com a aba fechada.
+O dashboard consulta o banco a cada cinco segundos, enquanto a aba está visível. A tela de Análises consulta ao abrir, aplicar filtros ou usar Atualizar. Essas consultas não disparam chamadas ao Spotify. O coletor segue `SYNC_INTERVAL_SECONDS`, mesmo com a aba fechada.
 
 O padrão atual é `900` segundos, ou 15 minutos. O painel usa o intervalo realmente carregado pelo agendador. Essa frequência reduz consultas, mas não resolve atrasos ou limitações da janela de histórico fornecida pelo Spotify.
 

@@ -16,7 +16,9 @@ try {
         echo 'Callback Spotify. Inicie a autorização com php app spotify:auth.';
         return;
     }
-    (new \ListenLab\Spotify\OAuth($config, new \ListenLab\Http\GuzzleTransport()))->complete($_GET);
+    $transport = new \ListenLab\Http\GuzzleTransport();
+    $accounts = new \ListenLab\Spotify\AccountGuard(\ListenLab\Database::connect($config), $transport);
+    (new \ListenLab\Spotify\OAuth($config, $transport, $accounts->verify(...)))->complete($_GET);
     echo 'Autorização salva. Pode fechar esta aba e executar php app spotify:sync.';
 } catch (\Throwable $error) {
     http_response_code(400);

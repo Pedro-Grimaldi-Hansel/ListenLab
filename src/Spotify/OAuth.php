@@ -13,9 +13,11 @@ final class OAuth implements TokenProvider
     public const SCOPE = 'user-read-recently-played';
     private readonly PrivateJsonStore $tokens;
     private readonly PrivateJsonStore $states;
+    private readonly ?\Closure $verifyAccount;
 
-    public function __construct(private readonly Config $config, private readonly Transport $http)
+    public function __construct(private readonly Config $config, private readonly Transport $http, ?callable $verifyAccount = null)
     {
+        $this->verifyAccount = $verifyAccount !== null ? $verifyAccount(...) : null;
         $directory = $config->path('TOKEN_STORAGE_PATH', 'tokens');
         $this->tokens = new PrivateJsonStore($directory, 'spotify');
         $this->states = new PrivateJsonStore($directory, 'oauth-state');
@@ -74,6 +76,7 @@ final class OAuth implements TokenProvider
             'grant_type' => 'authorization_code', 'code' => $query['code'],
             'redirect_uri' => $this->config->required('SPOTIFY_REDIRECT_URI'),
         ]);
+        if ($this->verifyAccount !== null) ($this->verifyAccount)($token['access_token']);
         $now = new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
         $token['authorized_at'] = $now->format(DATE_ATOM);
         $token['reauthorize_due_at'] = $now->modify('+6 months')->format(DATE_ATOM);

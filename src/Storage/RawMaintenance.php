@@ -21,7 +21,10 @@ final class RawMaintenance
             // Failed restores retain their files for diagnosis; do not create another
             // full dump at every collection. A manual run can retry immediately.
             if($ifDue && $this->db->query("SELECT EXISTS(SELECT 1 FROM raw_storage_runs WHERE started_at>now()-interval '24 hours')")->fetchColumn())return ['skipped'=>true,'reason'=>'checked_today'];
+            // Applied attempts must be visible even when the initial RAW scan fails.
+            if($apply)$runId=(int)Database::query($this->db,"INSERT INTO raw_storage_runs(operation,status)VALUES(?,'running')RETURNING id",[$archive?'archive':'compact'])->fetchColumn();
             $index=new RawIndex($this->db,$this->store);$before=$index->stats();
+            if($runId!==null)Database::query($this->db,'UPDATE raw_storage_runs SET local_bytes_before=? WHERE id=?',[$before['local_bytes'],$runId]);
             $rows=$this->db->query('SELECT id,path,sha256,size_bytes,received_at FROM raw_artifacts ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
             $legacy=[];$objects=[];$cold=[];$cutoff=microtime(true)-$olderThanDays*86400;
             foreach($rows as $row){
@@ -33,7 +36,6 @@ final class RawMaintenance
             $plan=['dry_run'=>!$apply,'legacy_artifacts'=>count($legacy),'unique_contents'=>count($objects),
                 'archive_candidates'=>$archive?count($cold):0,'local_bytes_before'=>$before['local_bytes']];
             if(!$apply)return $plan;
-            $runId=(int)Database::query($this->db,"INSERT INTO raw_storage_runs(operation,status,local_bytes_before)VALUES(?,'running',?)RETURNING id",[$archive?'archive':'compact',$before['local_bytes']])->fetchColumn();
             $snapshot=null;$backup=null;
             $hasLocalCandidates=$archive && (bool)Database::query($this->db,"SELECT EXISTS(SELECT 1 FROM raw_objects WHERE tier='local' AND first_received_at<=to_timestamp(?))",[$cutoff])->fetchColumn();
             if($legacy || $hasLocalCandidates || ($ifDue && $rows)){

@@ -115,6 +115,20 @@ final class OAuthTest extends TestCase
         }
     }
 
+    public function testRejectedAccountNeverReplacesTheExistingAuthorization(): void
+    {
+        $http=new FakeTransport([$this->tokenResponse(),$this->tokenResponse(['access_token'=>'synthetic-other-account'])]);
+        $oauth=new OAuth($this->config,$http,static function(string $token):void{
+            if($token==='synthetic-other-account')throw new AppError('Different synthetic account.');
+        });
+        $this->authorize($oauth);$path=$this->temporary.'/tokens/spotify.json';$before=file_get_contents($path);
+        parse_str(parse_url($oauth->begin(),PHP_URL_QUERY),$query);
+        try{$oauth->complete(['state'=>$query['state'],'code'=>'other-synthetic-code']);self::fail('Account mismatch must fail.');}
+        catch(AppError $error){self::assertSame('Different synthetic account.',$error->getMessage());}
+        self::assertSame($before,file_get_contents($path));
+        self::assertSame('synthetic-token',$oauth->accessToken());
+    }
+
     public function testLocalhostRedirectIsRejected(): void
     {
         $config = new Config($this->temporary, ['SPOTIFY_CLIENT_ID' => 'test', 'SPOTIFY_CLIENT_SECRET' => 'test', 'SPOTIFY_REDIRECT_URI' => 'http://localhost:8888/callback']);

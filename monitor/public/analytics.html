@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#121212">
+  <title>ListenLab · Análises</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%231db954'/%3E%3Cpath d='M12 17v6m8-12v18m8-15v12' stroke='%23121212' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E">
+  <script src="/assets/theme.js"></script><link rel="stylesheet" href="/assets/style.css"><link rel="stylesheet" href="/assets/analytics.css"><script src="/assets/analytics.js" defer></script>
+</head>
+<body data-page="analytics">
+  <a class="skip-link" href="#main-content">Ir para o conteúdo</a>
+  <aside class="sidebar">
+    <a class="brand" href="/analytics" aria-label="ListenLab, análises"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span>ListenLab<span class="brand-sub">Arquivo musical</span></span></a>
+    <div class="nav-label">Biblioteca</div>
+    <nav aria-label="Menu principal"><a class="nav-item active" href="/analytics" aria-current="page"><svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#analytics"></use></svg><span>Análises</span></a><a class="nav-item" href="/dashboard"><svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#dashboard"></use></svg><span>Dashboard</span></a><a class="nav-item" href="/tests"><svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#tests"></use></svg><span>Testes</span></a></nav>
+    <div class="sidebar-bottom"><button class="theme-control" id="theme-toggle" type="button" aria-label="Alternar tema" aria-pressed="true"><span id="theme-icon" aria-hidden="true">☀</span><span id="theme-label">Tema claro</span></button><div class="local-label"><span class="small-dot"></span> Armazenado neste computador</div><span class="version">LISTENLAB / LOCAL</span></div>
+  </aside>
+  <main id="main-content" tabindex="-1">
+    <header class="page-header"><div><div class="eyebrow">Sua biblioteca</div><h1>Análises</h1><p>O seu histórico, em perspectiva.</p></div><button class="button button-light" id="refresh-button" type="submit" form="analytics-filters"><svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#refresh"></use></svg> Atualizar</button></header>
+    <noscript><p class="error-banner">Ative o JavaScript para consultar as análises.</p></noscript>
+    <div class="error-banner" id="analytics-error" role="alert" hidden></div>
+    <form class="analytics-filters" id="analytics-filters" aria-label="Filtrar análises">
+      <label class="period-field"><span>Período</span><select id="period" name="period"><option value="all">Todo o histórico</option><option value="7d">Últimos 7 dias</option><option value="30d">Últimos 30 dias</option><option value="90d">Últimos 90 dias</option><option value="custom">Personalizado</option></select></label>
+      <div class="custom-dates" id="custom-dates" hidden><label>De<input id="date-from" name="from" type="date" min="0001-01-01" max="9998-12-31"></label><label>Até<input id="date-to" name="to" type="date" min="0001-01-01" max="9998-12-31"></label></div>
+      <label class="limit-field"><span>Exibir</span><select id="ranking-limit" name="limit"><option value="10">Top 10</option><option value="20">Top 20</option><option value="50">Top 50</option></select></label>
+      <button class="button button-light apply-filters" type="submit" id="apply-filters">Aplicar</button>
+    </form>
+    <div id="analytics-content" aria-busy="true">
+      <section class="analytics-metrics" aria-label="Resumo do período">
+        <article class="primary-metric"><span>Reproduções</span><strong id="stat-plays">—</strong></article>
+        <article><span>Faixas</span><strong id="stat-tracks">—</strong></article>
+        <article><span>Artistas</span><strong id="stat-artists">—</strong></article>
+        <article><span>Álbuns</span><strong id="stat-albums">—</strong></article>
+      </section>
+      <div class="data-context"><p id="selection-range">Consultando o período registrado…</p><details class="data-notes"><summary>Sobre os dados</summary><div><strong id="selection-label">Todo o histórico coletado</strong><p id="dataset-range">Consultando a base.</p><p>A API pode deixar lacunas. Dias sem eventos não comprovam ausência de escuta.</p><p>Faixas com identidades diferentes permanecem separadas. Cada artista creditado recebe uma contagem por reprodução.</p><p id="distribution-timezone">Fuso do monitor.</p></div></details></div>
+      <div class="analytics-layout">
+        <section class="rankings-section" aria-labelledby="rankings-title">
+          <div class="analytics-section-heading"><h2 id="rankings-title">Mais reproduzidos</h2><span id="ranking-size" class="subtle-label">Top 10</span></div>
+          <div class="ranking-tabs" role="tablist" aria-label="Tipo de ranking"><button type="button" role="tab" id="tab-tracks" aria-controls="panel-tracks" aria-selected="true">Faixas</button><button type="button" role="tab" id="tab-artists" aria-controls="panel-artists" aria-selected="false" tabindex="-1">Artistas</button><button type="button" role="tab" id="tab-albums" aria-controls="panel-albums" aria-selected="false" tabindex="-1">Álbuns</button></div>
+          <article class="ranking-card" id="panel-tracks" role="tabpanel" tabindex="0" aria-labelledby="tab-tracks"><h3 class="sr-only" id="tracks-title">Ranking de faixas</h3><div class="ranking-column-head" aria-hidden="true"><span>#</span><span>Faixa / artista</span><span>Reproduções</span><span>Participação</span></div><ol class="ranking-list" id="ranking-tracks" aria-label="Ranking de faixas"><li class="ranking-empty">Carregando faixas…</li></ol><div class="ranking-foot"><span id="tracks-count">— faixas</span><span>Versões de catálogo separadas</span></div></article>
+          <article class="ranking-card" id="panel-artists" role="tabpanel" tabindex="0" aria-labelledby="tab-artists" hidden><h3 class="sr-only" id="artists-title">Ranking de artistas</h3><div class="ranking-column-head" aria-hidden="true"><span>#</span><span>Artista</span><span>Reproduções</span><span>Participação</span></div><ol class="ranking-list" id="ranking-artists" aria-label="Ranking de artistas"><li class="ranking-empty">Carregando artistas…</li></ol><div class="ranking-foot"><span id="artists-count">— artistas</span></div><p class="ranking-note">Uma reprodução conta para cada artista creditado. As participações podem somar mais de 100%.</p></article>
+          <article class="ranking-card" id="panel-albums" role="tabpanel" tabindex="0" aria-labelledby="tab-albums" hidden><h3 class="sr-only" id="albums-title">Ranking de álbuns</h3><div class="ranking-column-head" aria-hidden="true"><span>#</span><span>Álbum</span><span>Reproduções</span><span>Participação</span></div><ol class="ranking-list" id="ranking-albums" aria-label="Ranking de álbuns"><li class="ranking-empty">Carregando álbuns…</li></ol><div class="ranking-foot"><span id="albums-count">— álbuns</span></div><p class="ranking-note" id="albums-note">Contagem por álbum identificado.</p></article>
+          <p class="analytics-caption" id="catalog-note">Empates: nome e ID do catálogo.</p>
+        </section>
+        <section class="distribution-section" aria-labelledby="distribution-title">
+          <div class="analytics-section-heading"><h2 id="distribution-title">Sua atividade</h2><span class="subtle-label">Reproduções</span></div>
+          <article class="chart-card daily-card"><div class="chart-heading"><h3>Por dia</h3><p id="daily-range">Consultando as datas.</p></div><div class="chart-scroll" tabindex="0" role="region" aria-label="Gráfico diário, role para percorrer as datas"><ol class="column-chart daily-chart" id="daily-chart" aria-label="Reproduções por data"></ol></div><p class="analytics-caption" id="daily-note">Dias sem eventos aparecem com zero.</p></article>
+          <article class="chart-card"><div class="chart-heading"><h3>Por hora</h3><span class="subtle-label">00–23h</span></div><div class="chart-scroll" tabindex="0" role="region" aria-label="Distribuição pelas 24 horas"><ol class="column-chart hours-chart" id="hour-chart" aria-label="Reproduções em cada hora"></ol></div><details class="chart-values"><summary>Ver valores por hora</summary><table><caption class="sr-only">Reproduções por hora no período</caption><thead><tr><th>Hora</th><th class="numeric">Reproduções</th><th class="numeric">Participação</th></tr></thead><tbody id="hour-values"></tbody></table></details></article>
+          <article class="chart-card"><div class="chart-heading"><h3>Na semana</h3><span class="subtle-label">Totais por dia</span></div><ol class="weekday-chart" id="weekday-chart" aria-label="Reproduções em cada dia da semana"></ol></article>
+        </section>
+      </div>
+    </div>
+    <footer class="page-footer"><span>Histórico registrado · Spotify</span><span id="analytics-updated" role="status" aria-live="polite">Consultando o banco…</span></footer>
+  </main>
+</body>
+</html>

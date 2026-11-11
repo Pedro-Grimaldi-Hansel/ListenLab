@@ -11,6 +11,8 @@ final class Summary
     public int $existing = 0;
     public int $failed = 0;
     public int $partial = 0;
+    public int $auditCreated = 0;
+    public int $duplicatesOmitted = 0;
     public int $pages = 0;
     public int $responses = 0;
     public ?\DateTimeImmutable $oldest = null;
@@ -37,6 +39,9 @@ final class Summary
             'api_records_received' => $this->received, 'new_source_records' => $this->inserted,
             'unique_source_records_observed' => count($this->observedKeys),
             'already_ingested' => $this->existing, 'plays_created' => $this->inserted,
+            'audit_policy' => 'distinct_payloads_v1',
+            'audit_records_created' => $this->auditCreated,
+            'duplicate_records_omitted' => $this->duplicatesOmitted,
             'records_processed' => $this->processed, 'records_failed' => $this->failed,
             'partially_processed' => $this->partial, 'pages' => $this->pages, 'http_responses' => $this->responses,
             'newest' => $this->newest?->format('Y-m-d\TH:i:s.u\Z'),

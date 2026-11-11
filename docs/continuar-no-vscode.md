@@ -1,5 +1,13 @@
 # Continuar o ListenLab no VS Code
 
+**Interface reformulada em 11/11/2026:** `/` agora abre `/analytics`. O menu único reúne Análises, Dashboard e Testes. Rankings usam abas; gráficos ficam ao lado em desktop e abaixo no celular. O Dashboard prioriza estado da coleta e histórico, com armazenamento depois. A tela de testes usa busca e grupos expansíveis. Tema escuro inicial, preservando escolhas já salvas. Conferência visual em celular e desktop, incluindo tela ampla, tema claro, filtros, vazio, teclado, ajuda, detalhes e paginação. Suíte completa: **120 testes e 1.231 assertions**, sem falhas/skips. Esta etapa alterou a interface, as rotas de entrada, a documentação e verificações HTTP; não exigiu migration ou dependências novas. [Decisão 009](decisions/009-analytics-first-interface.md). Os registros abaixo descrevem etapas anteriores.
+
+**Auditoria enxuta aplicada em 11/11/2026:** repetições completas com conteúdo já processado na mesma versão entram apenas nos contadores da coleta. Eventos novos, variantes, incompletos e erros conservam detalhe; os registros antigos e todos os RAW foram preservados. Nenhuma migration ou alteração de `.env` foi necessária. O scheduler foi retomado com intervalo de 900 segundos. A primeira coleta real recebeu 50 itens, criou quatro plays/quatro registros detalhados e omitiu 46 repetições. Hashes confirmaram as linhas anteriores de `plays`, `play_evidence`, `ingestion_records`, `raw_artifacts` e `.env` intactas. Suíte completa: **120 testes e 1.196 assertions**, sem falhas/skips; lint PHP aprovado. [Critérios, uso e limites](auditoria-enxuta.md), [decisão 008](decisions/008-compact-item-audit.md).
+
+**Análises adicionadas em 11/11/2026:** a tela local `/analytics` já está disponível, com rankings de faixas/artistas/álbuns, distribuições por hora/dia e filtros de período. As permissões de leitura necessárias foram aplicadas preservando o secret. Nenhuma migration ou alteração do histórico foi necessária. Suíte completa: **112 testes e 1.100 assertions**; lint PHP e sintaxe JavaScript aprovados. Filtros, recorte vazio, rankings e gráficos foram conferidos no navegador na largura disponível. Veja [uso, critérios e validação](analises.md) e a [decisão 007](decisions/007-local-listening-analytics.md). Os registros abaixo descrevem etapas anteriores.
+
+**Atualização posterior de segurança em 10/11/2026:** leia primeiro [as correções aplicadas e suas validações](correcoes-seguranca-2026-11-10.md). O monitor agora usa imagem e credencial de leitura exclusivas, sem acesso aos arquivos privados. As migrations 005/006 e o vínculo da conta atual já foram aplicados; os serviços foram atualizados com o volume existente. Os números e procedimentos de integração abaixo registram o estado anterior a essa atualização.
+
 Validação local: 10/11/2026. Esta pasta é a instalação existente do proprietário. O arquivo de continuidade não existia na pasta nem no ZIP recebido; este documento registra o estado observado após a integração.
 
 ## Contexto e preservação
@@ -29,13 +37,13 @@ Fechar o navegador não interrompe a coleta. Docker e o computador precisam cont
 - Testes HTTP permanentes iniciam um servidor isolado com conexão PostgreSQL somente leitura no schema de teste.
 - Scheduler sintético: heartbeat atualizado durante o processo filho, lock exclusivo e encerramento por SIGTERM sem próxima execução confirmada.
 
-A conferência visual permanece pendente. A ferramenta de controle do Chrome encerrou a inspeção por não conseguir confirmar a URL atual do navegador; nenhum resultado visual foi considerado aprovado. Abra o monitor para revisar aparência, responsividade e interação dos diálogos.
+Naquela etapa, a conferência visual ficou pendente porque a ferramenta de controle do Chrome encerrou a inspeção. A revisão posterior está registrada no início deste documento.
 
 ## Tema e explicações dos testes
 
-O menu do monitor oferece tema claro/escuro e a página `/tests`. O tema segue a preferência do sistema até uma escolha explícita, salva no navegador e compartilhada entre as duas telas. O catálogo atualizado explica 78 métodos em oito grupos, correspondentes a 88 cenários (39 unitários e 49 de integração), incluindo as variações de dados.
+Na primeira versão, o menu oferecia tema claro/escuro e `/tests`, seguindo a preferência do sistema até uma escolha explícita. O catálogo dessa etapa explicava 78 métodos em oito grupos, correspondentes a 88 cenários (39 unitários e 49 de integração), incluindo as variações de dados.
 
-O dashboard principal tem rota própria `/dashboard`; a entrada `/` redireciona para ela. Dashboard e testes têm navegação explícita, conteúdo distinto e scripts separados. O catálogo usa uma apresentação de documentação, em vez dos cartões operacionais do dashboard. A paleta passou a usar verde `#1DB954`, preto e cinza, com destaques `#1ED760`, mantendo as escolhas de tema já salvas no navegador.
+Na separação inicial, `/` redirecionava para `/dashboard`, e Dashboard/Testes já tinham conteúdo e scripts separados. A paleta passou a usar verde `#1DB954`, preto e cinza, com destaques `#1ED760`. A decisão 009 atualiza a entrada, a composição e a navegação das três telas atuais.
 
 O catálogo é descritivo e não executa a suíte. A página funciona sem consultar o banco e oferece busca, filtro por tipo e comandos para copiar. `testCatalogueDescribesEveryTestAndCountsItsDataSets` confere que nenhum teste ou conjunto de dados ficou sem explicação. Atualize `monitor/test-catalog.php` quando adicionar ou remover testes.
 

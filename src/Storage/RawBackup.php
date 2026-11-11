@@ -103,7 +103,9 @@ final class RawBackup
             if($name===$current || is_link($directory) || !preg_match('/^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{16}$/D',$name))continue;
             try{[, $old]=$this->manifest($name);}catch(\Throwable){continue;}
             if(($old['database']??null)!==($new['database']??null) || $old['schema']!==$new['schema'] || array_diff_key($old['objects'],$new['objects']))continue;
-            $files=glob($directory.'/*');$verified=false;$safe=true;
+            $files=[];
+            foreach(new \FilesystemIterator($directory,\FilesystemIterator::SKIP_DOTS) as $entry)$files[]=$entry->getPathname();
+            $verified=false;$safe=true;
             foreach($files as $file){
                 $base=basename($file);
                 if(!is_file($file)||is_link($file)||!($base==='database.dump'||$base==='manifest.json'||preg_match('/^verified-[0-9a-f]{16}\.json$/D',$base))){$safe=false;break;}
@@ -119,6 +121,11 @@ final class RawBackup
             if(++$position<=$keep)continue;
             $resolved=realpath($entry['directory']);
             if(!$root||!$resolved||!str_starts_with($resolved,$root.DIRECTORY_SEPARATOR))throw new AppError('Caminho inseguro ao rotacionar snapshots.');
+            // Recheck all entries immediately before removal, including hidden ones.
+            $actual=[];
+            foreach(new \FilesystemIterator($resolved,\FilesystemIterator::SKIP_DOTS) as $file)$actual[]=$file->getFilename();
+            $expected=array_map('basename',$entry['files']);sort($actual);sort($expected);
+            if($actual!==$expected)continue;
             // No recursive deletion, and no user dumps or unknown files are touched.
             foreach($entry['files'] as $file)if(!unlink($file))throw new AppError('Não foi possível rotacionar um snapshot antigo.');
             if(!rmdir($entry['directory']))throw new AppError('Não foi possível concluir a rotação do snapshot.');

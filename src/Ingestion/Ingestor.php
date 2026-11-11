@@ -44,6 +44,11 @@ final class Ingestor
 
     public function page(int $batchId, array $artifact, string $bytes, Summary $summary): array
     {
+        // Even items omitted from the detailed audit remain bound to immutable RAW bytes.
+        $expected = Database::query($this->db, 'SELECT sha256 FROM raw_artifacts WHERE id = ?', [$artifact['id']])->fetchColumn();
+        if (!is_string($expected) || !hash_equals($expected, hash('sha256', $bytes))) {
+            throw new AppError('O conteúdo não corresponde ao payload do RAW registrado.');
+        }
         try {
             $page = json_decode($bytes, false, 512, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
@@ -59,83 +64,124 @@ final class Ingestor
         $keys = [];
         foreach ($page->items as $index => $item) {
             $recordId = null;
+            $payloadHash = hash('sha256', CanonicalJson::encode($item));
             try {
-                $payload=json_encode($item,JSON_THROW_ON_ERROR);
-                $payloadHash=hash('sha256',CanonicalJson::encode($item));
-                $record = Database::query($this->db, 'INSERT INTO ingestion_records(raw_artifact_id,item_index,payload,payload_sha256) VALUES (?,?,NULL,?)
-                    ON CONFLICT (raw_artifact_id,item_index) DO UPDATE SET raw_artifact_id = EXCLUDED.raw_artifact_id
-                    WHERE ingestion_records.payload_sha256 = EXCLUDED.payload_sha256
-                        OR (ingestion_records.payload_sha256 IS NULL AND ingestion_records.payload=CAST(? AS jsonb)) RETURNING id', [
-                    $artifact['id'], $index, $payloadHash, $payload,
-                ])->fetchColumn();
-                if ($record === false) {
-                    throw new AppError('A ocorrência já registrada não corresponde ao payload informado. RAW não será reinterpretado silenciosamente.');
-                }
-                $recordId = (int) $record;
+                $this->validateStorageStrings($item, $index);
                 $parsed = $this->parser->parse($item);
                 $keys[] = $parsed->sourceKey;
                 $summary->observeKey($parsed->sourceKey);
                 $summary->observe($parsed->playedAt);
-                $this->record($recordId, $parsed, $artifact['observed_at'], $summary);
+                $this->record($artifact, $index, $payloadHash, $parsed, $summary);
             } catch (RecordProblem $problem) {
-                $keys[] = hash('sha256', CanonicalJson::encode($item));
+                [$recordId, $created] = $this->occurrence((int) $artifact['id'], $index, $payloadHash);
+                $summary->auditCreated += (int) $created;
+                $keys[] = $payloadHash;
                 $this->reject($batchId, $artifact['id'], $recordId, $problem->issueCode, $problem->getMessage(), $summary, $problem->review);
             } catch (\PDOException $error) {
                 if (!str_starts_with((string) $error->getCode(), '22')) {
                     throw $error;
                 }
-                $keys[] = hash('sha256', CanonicalJson::encode($item));
+                [$recordId, $created] = $this->occurrence((int) $artifact['id'], $index, $payloadHash);
+                $summary->auditCreated += (int) $created;
+                $keys[] = $payloadHash;
                 $this->reject($batchId, $artifact['id'], $recordId, 'unrepresentable_value', "Item {$index}: valor incompatível com PostgreSQL; consulte o RAW.", $summary);
             }
         }
         return ['page' => $page, 'count' => count($page->items), 'keys' => $keys];
     }
 
-    private function record(int $recordId, ParsedPlay $parsed, string $observedAt, Summary $summary): void
+    private function validateStorageStrings(mixed $value, int $index): void
     {
-        $this->db->beginTransaction();
-        try {
-            Database::query($this->db, 'SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', ['spotify_api:' . $parsed->sourceKey]);
-            $existing = Database::query($this->db, 'SELECT id FROM play_evidence WHERE source_id = ? AND source_record_key = ?', [$this->batches->sourceId, $parsed->sourceKey])->fetchColumn();
-            if ($existing !== false) {
-                $this->link($recordId, (int) $existing, $parsed->sourceKey, 'duplicate');
+        // JSON permits U+0000, PostgreSQL text/JSONB does not. Keep the existing
+        // rejection policy even though new audit rows now store only hashes.
+        if (is_string($value) && str_contains($value, "\0")) {
+            throw new RecordProblem('unrepresentable_value', "Item {$index}: valor incompatível com PostgreSQL; consulte o RAW.");
+        }
+        if (is_object($value) || is_array($value)) {
+            foreach ($value as $key => $child) {
+                $this->validateStorageStrings($key, $index);
+                $this->validateStorageStrings($child, $index);
+            }
+        }
+    }
+
+    private function record(array $artifact, int $index, string $payloadHash, ParsedPlay $parsed, Summary $summary): void
+    {
+        // Serialize play creation and the decision to omit a known payload together.
+        for ($attempt = 0; $attempt < 2; ++$attempt) {
+            $this->db->beginTransaction();
+            try {
+                Database::query($this->db, 'SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', ['spotify_api:' . $parsed->sourceKey]);
+                $existing = Database::query($this->db, 'SELECT id,first_ingestion_record_id FROM play_evidence WHERE source_id = ? AND source_record_key = ?', [$this->batches->sourceId, $parsed->sourceKey])->fetch(PDO::FETCH_ASSOC);
+                if ($existing && !$parsed->partial && $this->knownPayload($existing, $parsed->sourceKey, $payloadHash)) {
+                    $this->db->commit();
+                    ++$summary->existing;
+                    ++$summary->processed;
+                    ++$summary->duplicatesOmitted;
+                    return;
+                }
+                [$recordId, $created] = $this->occurrence((int) $artifact['id'], $index, $payloadHash);
+                if ($existing) {
+                    $this->link($recordId, (int) $existing['id'], $parsed->sourceKey, 'duplicate');
+                } else {
+                    $trackId = $this->catalog->persist($parsed, $artifact['observed_at']);
+                    $playId = (int) Database::query($this->db, 'INSERT INTO plays(track_id,played_at,timestamp_semantics,context_type,context_uri) VALUES (?,?,?,?,?) RETURNING id', [
+                        $trackId, $parsed->playedAt->format('Y-m-d\TH:i:s.uP'), 'spotify_api_played_at', $parsed->context['type'] ?? null, $parsed->context['uri'] ?? null,
+                    ])->fetchColumn();
+                    $evidenceId = Database::query($this->db, 'INSERT INTO play_evidence(play_id,source_id,source_record_key,first_ingestion_record_id) VALUES (?,?,?,?) ON CONFLICT (source_id,source_record_key) DO NOTHING RETURNING id', [
+                        $playId, $this->batches->sourceId, $parsed->sourceKey, $recordId,
+                    ])->fetchColumn();
+                    if ($evidenceId === false) {
+                        // A writer outside our lock won the constraint. Retry after
+                        // rolling back the candidate catalog, play and audit record.
+                        $this->db->rollBack();
+                        continue;
+                    }
+                    $this->link($recordId, (int) $evidenceId, $parsed->sourceKey, $parsed->partial ? 'partially_processed' : 'processed');
+                }
                 $this->db->commit();
-                ++$summary->existing;
+                $summary->auditCreated += (int) $created;
+                if ($existing) ++$summary->existing;
+                else {
+                    ++$summary->inserted;
+                }
+                if ($parsed->partial) ++$summary->partial;
                 ++$summary->processed;
                 return;
+            } catch (\Throwable $error) {
+                if ($this->db->inTransaction()) $this->db->rollBack();
+                throw $error;
             }
-            $trackId = $this->catalog->persist($parsed, $observedAt);
-            $playId = (int) Database::query($this->db, 'INSERT INTO plays(track_id,played_at,timestamp_semantics,context_type,context_uri) VALUES (?,?,?,?,?) RETURNING id', [
-                $trackId, $parsed->playedAt->format('Y-m-d\TH:i:s.uP'), 'spotify_api_played_at', $parsed->context['type'] ?? null, $parsed->context['uri'] ?? null,
-            ])->fetchColumn();
-            $evidenceId = Database::query($this->db, 'INSERT INTO play_evidence(play_id,source_id,source_record_key,first_ingestion_record_id) VALUES (?,?,?,?) ON CONFLICT (source_id,source_record_key) DO NOTHING RETURNING id', [
-                $playId, $this->batches->sourceId, $parsed->sourceKey, $recordId,
-            ])->fetchColumn();
-            if ($evidenceId === false) {
-                // Another writer may ignore our advisory lock. Roll back the candidate
-                // play/catalog, then attach this occurrence to the winner.
-                $this->db->rollBack();
-                $existing = Database::query($this->db, 'SELECT id FROM play_evidence WHERE source_id = ? AND source_record_key = ?', [$this->batches->sourceId, $parsed->sourceKey])->fetchColumn();
-                if ($existing === false) {
-                    throw new AppError('Conflito de identidade sem evidência persistente.');
-                }
-                $this->link($recordId, (int) $existing, $parsed->sourceKey, 'duplicate');
-                ++$summary->existing;
-            } else {
-                $this->link($recordId, (int) $evidenceId, $parsed->sourceKey, $parsed->partial ? 'partially_processed' : 'processed');
-                $this->db->commit();
-                ++$summary->inserted;
-                if ($parsed->partial) {
-                    ++$summary->partial;
-                }
-            }
-            ++$summary->processed;
-        } catch (\Throwable $error) {
-            if ($this->db->inTransaction()) {
-                $this->db->rollBack();
-            }
-            throw $error;
         }
+        throw new AppError('Conflito de identidade sem evidência persistente.');
+    }
+
+    private function knownPayload(array $evidence, string $sourceKey, string $hash): bool
+    {
+        $known = Database::query($this->db, "SELECT EXISTS(SELECT 1 FROM ingestion_records
+            WHERE source_record_key=? AND evidence_id=? AND payload_sha256=? AND normalizer_version=?
+            AND processing_status IN ('processed','duplicate'))", [$sourceKey, $evidence['id'], $hash, RecentlyPlayedParser::VERSION])->fetchColumn();
+        if ($known) return true;
+        // The legacy first occurrence can prove equality without rewriting JSONB
+        // or creating an extra row just to populate its hash column.
+        $first = Database::query($this->db, 'SELECT payload,normalizer_version,processing_status FROM ingestion_records WHERE id=? AND payload_sha256 IS NULL', [$evidence['first_ingestion_record_id']])->fetch(PDO::FETCH_ASSOC);
+        return $first && $first['payload'] !== null && $first['normalizer_version'] === RecentlyPlayedParser::VERSION
+            && $first['processing_status'] === 'processed'
+            && hash_equals($hash, hash('sha256', CanonicalJson::encode(json_decode($first['payload'], false, 512, JSON_THROW_ON_ERROR))));
+    }
+
+    /** @return array{int,bool} Existing rows remain available; no row is deleted. */
+    private function occurrence(int $artifactId, int $index, string $hash): array
+    {
+        $id = Database::query($this->db, 'INSERT INTO ingestion_records(raw_artifact_id,item_index,payload,payload_sha256) VALUES (?,?,NULL,?)
+            ON CONFLICT (raw_artifact_id,item_index) DO NOTHING RETURNING id', [$artifactId, $index, $hash])->fetchColumn();
+        if ($id !== false) return [(int) $id, true];
+        $row = Database::query($this->db, 'SELECT id,payload,payload_sha256 FROM ingestion_records WHERE raw_artifact_id=? AND item_index=?', [$artifactId, $index])->fetch(PDO::FETCH_ASSOC);
+        if ($row) {
+            $previous = $row['payload_sha256'] ?? hash('sha256', CanonicalJson::encode(json_decode($row['payload'], false, 512, JSON_THROW_ON_ERROR)));
+            if (hash_equals($hash, $previous)) return [(int) $row['id'], false];
+        }
+        throw new AppError('A ocorrência já registrada não corresponde ao payload informado. RAW não será reinterpretado silenciosamente.');
     }
 
     private function link(int $recordId, int $evidenceId, string $key, string $status): void

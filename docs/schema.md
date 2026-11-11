@@ -21,9 +21,10 @@ erDiagram
 | Tabela | Responsabilidade |
 | --- | --- |
 | `data_sources` | `spotify_api`, `spotify_account_export` e `spotify_extended_export`, fontes distintas |
+| `spotify_account_binding` | Um vínculo pessoal imutável por dataset, com hash do account_id e do access token verificado, sem guardar o perfil |
 | `ingestion_batches` | Execução, operação, status, contadores e relatório da coleta |
 | `raw_artifacts` | Caminho relativo ao RAW root, hash, tamanho, HTTP status, recebimento, endpoint e query; metadados append-only |
-| `ingestion_records` | Cada ocorrência em uma posição do array `items`; hash do payload (JSONB legado preservado), status, versão e evidência resultante |
+| `ingestion_records` | Detalhes de eventos novos, variantes e exceções por posição do RAW; hash, status, versão e evidência. Linhas legadas são preservadas; repetições completas conhecidas podem ficar só nos contadores do batch |
 | `raw_objects` | Um corpo original por SHA-256; tamanho armazenado, encoding e localização ativa/arquivo |
 | `raw_storage_refs` | Liga cada artefato ao conteúdo compartilhado e mede sua referência física |
 | `raw_storage_runs` | Plano aplicado, resultado da manutenção, medidas e snapshot de backup verificado |
@@ -46,5 +47,9 @@ O catálogo é uma projeção consolidada dos eventos normalizados. Um novo even
 Os índices iniciais cobrem data/track das plays, artista na relação N:N, fonte/batch, artefatos, chaves e evidências. Não há otimizações analíticas prematuras.
 
 As migrations SQL são incrementais, transacionais, serializadas e verificadas por SHA-256. Não edite uma migration aplicada; adicione outra. Não existem migrações `down` destrutivas nesta entrega.
+
+As migrations 005 e 006 complementam as proteções: o índice RAW recusa também TRUNCATE, e o vínculo da conta recusa troca de identidade, DELETE e TRUNCATE. As permissões de leitura do monitor são provisionadas separadamente com `monitor:provision`, sem conceder acesso aos payloads ou à tabela de vínculo. [Decisão 006](decisions/006-local-security-boundaries.md).
+
+As análises locais não acrescentam tabelas: agregam `plays` e o catálogo existente em snapshot somente leitura. O provisionamento concede apenas as colunas necessárias de `plays`, `tracks`, `artists`, `albums` e `track_artists`, além do acesso operacional existente. Payloads, contexto de escuta e vínculo privado continuam sem grant para a role web. [Decisão 007](decisions/007-local-listening-analytics.md).
 
 O estado de autenticação fica separado do domínio, em arquivos privados. A versão atual pressupõe uma conta pessoal por dataset. Tabelas derivadas podem evoluir; auditoria e artefatos originais permanecem para reconstrução. Nenhum matching entre API e exports foi implementado.

@@ -1,7 +1,9 @@
 name: listenlab
 
 x-app: &app
-  build: .
+  build:
+    context: .
+    target: app
   image: listenlab-php:local
   working_dir: /app
   init: true
@@ -27,7 +29,10 @@ x-app: &app
 
 services:
   db:
-    image: postgres:17-bookworm
+    build:
+      context: .
+      dockerfile: docker/postgres.Dockerfile
+    image: listenlab-postgres:local
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-listenlab}
@@ -58,7 +63,40 @@ services:
     command: ["php", "bin/scheduler.php"]
     restart: unless-stopped
   monitor:
-    <<: *app
+    build:
+      context: .
+      target: monitor
+    image: listenlab-monitor:local
+    working_dir: /app
+    init: true
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    tmpfs:
+      - /tmp:size=16m,mode=1777,noexec,nosuid
+    volumes:
+      - ./vendor:/app/vendor:ro
+      - ./src:/app/src:ro
+      - ./monitor:/app/monitor:ro
+    secrets:
+      - monitor_db_password
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-listenlab}
+      MONITOR_DB_USER: ${MONITOR_DB_USER:-listenlab_monitor}
+      MONITOR_DB_PASSWORD_FILE: /run/secrets/monitor_db_password
+      MONITOR_PORT: ${MONITOR_PORT:-8787}
+      MONITOR_TIMEZONE: ${MONITOR_TIMEZONE:-America/Sao_Paulo}
+      SYNC_INTERVAL_SECONDS: ${SYNC_INTERVAL_SECONDS:-900}
+      RAW_ARCHIVE_AFTER_DAYS: ${RAW_ARCHIVE_AFTER_DAYS:-30}
+      RAW_MAINTENANCE_ENABLED: ${RAW_MAINTENANCE_ENABLED:-1}
+      RAW_BACKUP_KEEP: ${RAW_BACKUP_KEEP:-3}
+    depends_on:
+      db:
+        condition: service_healthy
     profiles: [monitor]
     command: ["php", "-S", "0.0.0.0:8787", "-t", "monitor/public", "monitor/router.php"]
     ports:
@@ -67,3 +105,7 @@ services:
 
 volumes:
   postgres_data:
+
+secrets:
+  monitor_db_password:
+    file: ${MONITOR_DB_PASSWORD_FILE:-./storage/secrets/monitor-db-password}

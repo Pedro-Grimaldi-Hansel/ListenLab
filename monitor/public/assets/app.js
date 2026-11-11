@@ -70,13 +70,13 @@ function tick() {
   if (age !== null && age > state.overview.heartbeat_stale_seconds && !['stopped','unknown'].includes(status)) status = 'stale';
   if (state.offline || Date.now() - state.receivedAt > 20000) status = 'disconnected';
   const variants = {
-    waiting: ['AGENDADOR ATIVO', 'A próxima coleta está a caminho.', 'Seu coletor está ligado e aguardando o intervalo para buscar os próximos eventos.', 'healthy'],
-    collecting: ['COLETANDO AGORA', 'Seu histórico está sendo atualizado.', 'O coletor está consultando o Spotify e registrando as respostas recebidas.', 'healthy'],
-    stopped: ['AGENDADOR PARADO', 'A coleta automática está pausada.', 'O agendador encerrou sua execução. O histórico e os arquivos já registrados continuam disponíveis.', 'warning'],
-    unknown: ['SEM SINAL DO AGENDADOR', 'Vamos colocar o coletor em movimento?', 'Ainda não há sinal desta versão do agendador. Abra o guia rápido para iniciar ou atualizar o serviço.', 'warning'],
-    stale: ['SEM SINAL RECENTE', 'O coletor deixou de enviar sinal.', 'Confira se o serviço scheduler e o Docker continuam em execução. A próxima coleta não pode ser confirmada.', 'warning'],
-    delayed: ['COLETA ATRASADA', 'A próxima coleta precisa de atenção.', 'O agendador está respondendo, mas o horário previsto passou. Confira o histórico e os logs do coletor.', 'warning'],
-    disconnected: ['CONEXÃO INTERROMPIDA', 'Não foi possível atualizar o estado.', 'Os números abaixo são os últimos dados recebidos. Aguardando conexão com o monitor.', 'danger'],
+    waiting: ['Ativo', 'Coleta em funcionamento', 'O agendador está aguardando a próxima busca no Spotify.', 'healthy'],
+    collecting: ['Coletando', 'Buscando novos eventos', 'As respostas estão sendo preservadas e processadas.', 'healthy'],
+    stopped: ['Pausado', 'Coleta automática pausada', 'O agendador foi encerrado. Abra o guia para retomá-lo.', 'warning'],
+    unknown: ['Sem sinal', 'Agendador não confirmado', 'Abra o guia para iniciar ou conferir o serviço de coleta.', 'warning'],
+    stale: ['Sem sinal recente', 'Confira o agendador', 'O sinal está desatualizado. Verifique se o scheduler e o Docker estão em execução.', 'warning'],
+    delayed: ['Atrasado', 'Coleta fora do horário previsto', 'O agendador responde, mas o horário da próxima busca já passou. Consulte as execuções.', 'warning'],
+    disconnected: ['Sem conexão', 'Atualização indisponível', 'Os dados exibidos são os últimos recebidos. Aguardando conexão.', 'danger'],
   };
   const [label, title, description, cls] = variants[status] || variants.unknown;
   text('collector-badge', label); $('collector-badge').className = `status-pill ${cls}`;
@@ -106,7 +106,7 @@ function renderBatches(data) {
     row.append(id, started, node('td','', duration(batch.duration_seconds)), node('td','numeric',number(batch.received)), node('td',`numeric ${batch.plays_created > 0 ? 'number-positive' : 'number-muted'}`, batch.plays_created > 0 ? `+${number(batch.plays_created)}` : '0'), node('td','numeric number-muted',number(batch.existing)), statusCell, details);
     body.append(row);
   }
-  text('pagination-summary', data.total ? `Exibindo ${(data.page - 1) * 15 + 1}–${Math.min(data.page * 15, data.total)} de ${number(data.total)} execuções` : 'Nenhuma execução registrada');
+  text('pagination-summary', data.total ? `Exibindo ${(data.page - 1) * 15 + 1}–${Math.min(data.page * 15, data.total)} de ${number(data.total)} execuções` : state.status === 'all' ? 'Nenhuma execução registrada' : 'Nenhuma execução neste filtro');
   text('page-label', `${data.page} / ${data.pages}`);
   $('previous-page').disabled = data.page <= 1; $('next-page').disabled = data.page >= data.pages;
 }
@@ -144,7 +144,7 @@ async function openDetails(id) {
     const content = $('detail-content'); content.replaceChildren();
     const meta = node('div','detail-meta'); meta.append(badge(data.status),node('span','',`${operationLabels[data.operation] || data.operation} · ${fullDate(data.started_at)} · ${duration(data.duration_seconds)}`)); content.append(meta);
     const stats = node('div','detail-stats');
-    for (const [label, value] of [['Recebidos',data.received],['Novas plays',data.plays_created],['Já existentes',data.existing],['Com falha',data.failed]]) {
+    for (const [label, value] of [['Recebidos',data.received],['Novas reproduções',data.plays_created],['Já existentes',data.existing],['Com falha',data.failed]]) {
       const card = node('div','detail-stat'); card.append(node('span','',label),node('strong','',number(value))); stats.append(card);
     }
     content.append(stats);

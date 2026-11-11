@@ -1,5 +1,12 @@
 name: PHP and PostgreSQL
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 7 * * 1'
+permissions:
+  contents: read
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -20,8 +27,10 @@ jobs:
       POSTGRES_PASSWORD: synthetic_ci_password
       TEST_DB_NAME: listenlab_test
     steps:
-      - uses: actions/checkout@v4
-      - uses: shivammathur/setup-php@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
         with:
           php-version: "8.4"
           extensions: curl, pdo_pgsql, mbstring, dom, xml, xmlwriter
@@ -29,5 +38,47 @@ jobs:
           tools: composer:v2
       - run: composer install --no-interaction --prefer-dist --no-progress
       - run: composer validate --strict
+      - run: composer audit --locked --no-interaction
       - run: composer lint
       - run: composer test:all
+  images:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: listenlab-monitor:ci
+            dockerfile: Dockerfile
+            target: monitor
+          - image: listenlab-app:ci
+            dockerfile: Dockerfile
+            target: app
+          - image: listenlab-db:ci
+            dockerfile: docker/postgres.Dockerfile
+            target: database
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Build local image without private data
+        run: docker build --file '${{ matrix.dockerfile }}' --target '${{ matrix.target }}' --tag '${{ matrix.image }}' .
+      - name: Report high and critical findings, including unfixed advisories
+        uses: aquasecurity/trivy-action@38b337fff0a2f984d5be173c99e3f633438167ec
+        with:
+          version: v0.76.2
+          image-ref: ${{ matrix.image }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: 'false'
+          exit-code: '0'
+      - name: Reject fixable high and critical vulnerabilities
+        uses: aquasecurity/trivy-action@38b337fff0a2f984d5be173c99e3f633438167ec
+        with:
+          version: v0.76.2
+          skip-setup-trivy: 'true'
+          image-ref: ${{ matrix.image }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: 'true'
+          exit-code: '1'

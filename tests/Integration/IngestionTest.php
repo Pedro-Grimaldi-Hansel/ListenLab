@@ -74,11 +74,12 @@ final class IngestionTest extends TestCase
         return (int) $this->db->query('SELECT count(*) FROM ' . $table)->fetchColumn();
     }
 
-    public function testSamePayloadTwiceCreatesNoDuplicatePlaysAndKeepsEveryOccurrence(): void
+    public function testSamePayloadTwiceOmitsRepeatedItemsAndPreservesEveryRawReceipt(): void
     {
         $response = Fixtures::response();
         $collector = $this->collector([$response, $response]);
         $first = $collector->collect('sync', 5, 50);
+        $before = $this->db->query('SELECT * FROM ingestion_records ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
         $second = $collector->collect('sync', 5, 50);
         self::assertSame('completed', $first['status']);
         self::assertSame(3, $first['plays_created']);
@@ -87,7 +88,11 @@ final class IngestionTest extends TestCase
         self::assertSame(3, $this->rowCount('plays'));
         self::assertSame(2, $this->rowCount('tracks'));
         self::assertSame(3, $this->rowCount('play_evidence'));
-        self::assertSame(6, $this->rowCount('ingestion_records'));
+        self::assertSame(3, $this->rowCount('ingestion_records'));
+        self::assertSame($before, $this->db->query('SELECT * FROM ingestion_records ORDER BY id')->fetchAll(PDO::FETCH_ASSOC));
+        self::assertSame(3, $first['audit_records_created']);
+        self::assertSame(0, $second['audit_records_created']);
+        self::assertSame(3, $second['duplicate_records_omitted']);
         self::assertSame(2, $this->rowCount('raw_artifacts'));
         foreach ($second['raw_paths'] as $path) {
             self::assertSame($response->body, $this->raw->readVerified($path,hash('sha256',$response->body)));
@@ -257,7 +262,7 @@ final class IngestionTest extends TestCase
         $collector = $this->collector([Fixtures::response(), Fixtures::response()]);
         $collector->collect('sync', 5, 50);
         $collector->collect('sync', 5, 50);
-        $anotherOccurrence = (int) $this->db->query('SELECT max(id) FROM ingestion_records')->fetchColumn();
+        $anotherOccurrence = (int) $this->db->query("INSERT INTO ingestion_records(raw_artifact_id,item_index,payload_sha256) SELECT min(id),99,repeat('0',64) FROM raw_artifacts RETURNING id")->fetchColumn();
         $this->expectException(PDOException::class);
         Database::query($this->db, 'INSERT INTO play_evidence(play_id,source_id,source_record_key,first_ingestion_record_id) SELECT play_id,source_id,source_record_key,? FROM play_evidence LIMIT 1', [$anotherOccurrence]);
     }
@@ -280,6 +285,74 @@ final class IngestionTest extends TestCase
         $this->collector([Fixtures::response()])->collect('sync', 5, 50);
         $this->expectException(PDOException::class);
         $this->db->exec("UPDATE raw_artifacts SET sha256 = repeat('0',64)");
+    }
+
+    public function testAccountBindingRejectsAnotherAccountAndReusesVerifiedTokens(): void
+    {
+        $http=new FakeTransport([new Response(200,'{"account_id":"synthetic-account-a"}'),new Response(200,'{"account_id":"synthetic-account-a"}'),new Response(200,'{"account_id":"synthetic-account-b"}')]);
+        $guard=new \ListenLab\Spotify\AccountGuard($this->db,$http);
+        $guard->verify('synthetic-access-a');$guard->verify('synthetic-access-a');
+        self::assertCount(1,$http->requests);
+        $guard->verify('synthetic-refreshed-a');self::assertCount(2,$http->requests);
+        $before=$this->db->query('SELECT * FROM spotify_account_binding')->fetch(PDO::FETCH_ASSOC);
+        try{$guard->verify('synthetic-other-b');self::fail('Another account must be rejected.');}
+        catch(AppError $error){self::assertStringContainsString('diferente',$error->getMessage());self::assertStringNotContainsString('synthetic-account-b',$error->getMessage());}
+        self::assertSame($before,$this->db->query('SELECT * FROM spotify_account_binding')->fetch(PDO::FETCH_ASSOC));
+        self::assertSame(hash('sha256','synthetic-account-a'),$before['account_sha256']);
+    }
+
+    public function testAccountMismatchAfterTokenRefreshStopsBeforeAcceptingAnotherHistory(): void
+    {
+        $this->collector([Fixtures::response()])->collect('sync',1,50);
+        $profiles=new FakeTransport([new Response(200,'{"account_id":"synthetic-a"}'),new Response(200,'{"account_id":"synthetic-b"}')]);
+        $guard=new \ListenLab\Spotify\AccountGuard($this->db,$profiles);$guard->verify('synthetic-access-token',true);
+        $music=new FakeTransport([new Response(401,'{}'),Fixtures::response()]);
+        $tokens=new \ListenLab\Spotify\AccountTokens(new FakeTokens(),$guard);
+        $report=(new Collector($this->db,$this->raw,new Api($music,$tokens)))->collect('sync',1,50);
+        self::assertSame('failed',$report['status']);self::assertSame(0,$report['plays_created']);
+        self::assertSame(3,$this->rowCount('plays'));self::assertCount(1,$music->requests);
+        self::assertSame(2,$this->rowCount('raw_artifacts'));
+    }
+
+    public function testProfileUnauthorizedRefreshesTheTokenBeforeCheckingTheAccountAgain(): void
+    {
+        $profiles=new FakeTransport([new Response(401,'private token error'),new Response(200,'{"account_id":"synthetic-account"}')]);
+        $source=new FakeTokens();$tokens=new \ListenLab\Spotify\AccountTokens($source,new \ListenLab\Spotify\AccountGuard($this->db,$profiles));
+        self::assertSame('synthetic-refreshed-token',$tokens->accessToken());
+        self::assertSame([null,'synthetic-access-token'],$source->rejected);
+        self::assertCount(2,$profiles->requests);
+        self::assertSame(hash('sha256','synthetic-refreshed-token'),$this->db->query('SELECT verified_token_sha256 FROM spotify_account_binding')->fetchColumn());
+    }
+
+    public function testExistingHistoryRequiresBindingItsCurrentAccountBeforeReauthorization(): void
+    {
+        $this->collector([Fixtures::response()])->collect('sync',1,50);
+        $http=new FakeTransport([new Response(200,'{"account_id":"synthetic-current-account"}')]);
+        $guard=new \ListenLab\Spotify\AccountGuard($this->db,$http);
+        try{$guard->verify('synthetic-current-token');self::fail('Existing data requires explicit initial binding.');}
+        catch(AppError $error){self::assertStringContainsString('spotify:account:bind',$error->getMessage());}
+        self::assertCount(0,$http->requests);$guard->verify('synthetic-current-token',true);
+        self::assertSame(3,$this->rowCount('plays'));self::assertSame(1,$this->rowCount('spotify_account_binding'));
+        try{$this->db->exec("UPDATE spotify_account_binding SET account_sha256=repeat('b',64)");self::fail('Account binding must be immutable.');}
+        catch(PDOException $error){self::assertSame('P0001',$error->getCode());}
+    }
+
+    public function testInvalidProfilesCannotBindTheDatasetOrLeakTheirContents(): void
+    {
+        foreach([new Response(200,'{"id":"legacy-id-only"}'),new Response(200,'{"account_id":null}'),new Response(200,'invalid private profile'),new Response(429,'private error details')]as$response){
+            $guard=new \ListenLab\Spotify\AccountGuard($this->db,new FakeTransport([$response]));
+            try{$guard->verify('synthetic-candidate');self::fail('Invalid profiles must fail closed.');}
+            catch(AppError $error){self::assertStringNotContainsString('private',$error->getMessage());}
+            self::assertSame(0,$this->rowCount('spotify_account_binding'));
+        }
+    }
+
+    public function testRawRegistryRejectsTruncateEvenForItsOwner(): void
+    {
+        $this->collector([Fixtures::response()])->collect('sync',1,50);
+        try{$this->db->exec('TRUNCATE raw_artifacts CASCADE');self::fail('The RAW registry must refuse TRUNCATE.');}
+        catch(PDOException $error){self::assertSame('P0001',$error->getCode());}
+        self::assertSame(1,$this->rowCount('raw_artifacts'));self::assertSame(3,$this->rowCount('plays'));
     }
 
     public function testDerivedTablesCanBeRebuiltFromRawWithoutSpotify(): void
