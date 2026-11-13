@@ -1,154 +1,207 @@
-# Como o ListenLab funciona hoje
+# Como o ListenLab funciona
 
-Descrição conferida no commit base `33ed9c8`, nas correções locais de 10/11/2026 e nas análises adicionadas em 11/11/2026. A [avaliação inicial](auditoria-2026-11-10.md) registra o diagnóstico; [as correções de segurança](correcoes-seguranca-2026-11-10.md) descrevem o estado aplicado e os avisos restantes.
+[Índice](README.md) · [Início rápido](guias/inicio-rapido.md) · [Mapa do código](guias/desenvolvimento.md)
 
-O ListenLab é um arquivo pessoal de dados musicais. Ele consulta o histórico recente do Spotify, guarda a resposta original e transforma os eventos recebidos em tabelas PostgreSQL. O dashboard acompanha a operação dessa coleta; a tela de Análises apresenta rankings e distribuições dos eventos registrados. A importação dos arquivos Extended ainda não foi implementada.
+O ListenLab é um arquivo pessoal de dados musicais: consulta o histórico recente do Spotify, preserva as respostas originais, transforma os itens em eventos no PostgreSQL e permite consultar o resultado no navegador. Esta descrição foi conferida com o código local em **12/11/2026**. Estado de containers, quantidades e resultados de testes devem ser consultados ou executados no momento de uso.
 
-## O caminho de uma coleta
+## 1. As peças do sistema
+
+| Serviço | Função | Como é usado |
+| --- | --- | --- |
+| `db` | PostgreSQL 17: eventos, catálogo, proveniência, auditoria e estado operacional | Permanente, em volume Docker persistente |
+| `app` | PHP 8.4, Composer e ferramentas PostgreSQL | Comandos pontuais de administração, consulta e testes |
+| `scheduler` | Inicia coleta e manutenção, publica heartbeat e próxima execução | Permanente enquanto a coleta estiver ligada |
+| `monitor` | Servidor PHP com HTML/CSS/JavaScript e API local somente leitura | Páginas Análises, Dashboard e Testes |
+| `callback` | Recebe o retorno OAuth do navegador | Temporário, durante a autorização |
+
+```mermaid
+flowchart LR
+    U[Proprietário] --> CLI[CLI no serviço app]
+    U --> B[Navegador local]
+    CLI --> DB[(PostgreSQL)]
+    CLI --> SP[Spotify API e OAuth]
+    S[Scheduler] --> C[Processo filho da CLI]
+    C --> SP
+    C --> F[RAW e relatórios privados]
+    C --> DB
+    S --> DB
+    B --> M[Monitor: credencial de leitura]
+    M --> DB
+```
+
+As portas são publicadas apenas no loopback: monitor em `127.0.0.1:8787` por padrão e callback em `127.0.0.1:8888` quando ligado. O banco usa `db:5432` dentro do Docker; no Windows, a porta vem de `DB_PORT` — o modelo usa `5432` e esta instalação foi configurada com `15432`.
+
+Não há fila, Redis ou build obrigatório de frontend. Fechar o navegador não interrompe o coletor. Docker, computador e banco precisam permanecer disponíveis.
+
+## 2. Autorização e proteção da conta
+
+```mermaid
+sequenceDiagram
+    actor U as Proprietário
+    participant C as CLI / callback
+    participant S as Spotify
+    participant T as Tokens privados
+    participant D as PostgreSQL
+    U->>C: spotify:auth
+    C-->>U: URL com state temporário
+    U->>S: Autorizar leitura do histórico recente
+    S-->>C: Retorno com code e state
+    C->>C: Validar expiração e uso único do state
+    C->>S: Trocar code por tokens
+    C->>S: Conferir account_id do token candidato
+    C->>D: Criar ou conferir vínculo da conta
+    C->>T: Persistir autorização validada
+```
+
+A aplicação pede `user-read-recently-played` e usa Authorization Code com Client Secret protegido no backend. O `state` vence em dez minutos e só pode ser usado uma vez. O retorno também pode ser concluído pelo prompt oculto de `spotify:auth:complete`.
+
+Os tokens ficam em `tokens/spotify.json`, fora do RAW musical. A renovação usa `expires_in`, um lock de arquivo e o refresh token. `invalid_grant` invalida a autorização local e exige novo OAuth. O aplicativo mantém a data original e uma previsão de reautorização em seis meses; o retorno efetivo do Spotify determina se a credencial é aceita.
+
+Há uma conta por banco/diretório de dados. [AccountGuard.php](../src/Spotify/AccountGuard.php) consulta o perfil para obter `account_id` e guarda seu hash, sem arquivar o perfil como RAW musical. Um novo access token precisa ser verificado; o resultado é reutilizado para o mesmo token. Uma conta diferente é recusada antes de substituir a autorização ou aceitar seu histórico.
+
+Um dataset anterior a essa proteção exige `spotify:account:bind` com o token que já o operava. O vínculo protege operações futuras, sem provar a titularidade dos RAW antigos. O procedimento completo está em [Instalação](guias/instalacao.md).
+
+## 3. O ciclo automático
+
+O [Scheduler](../src/Scheduling/Scheduler.php) obtém um advisory lock de sessão para manter um agendador por banco. Ao iniciar, executa uma coleta; depois espera o próximo ciclo. O padrão é `SYNC_INTERVAL_SECONDS=900`.
 
 ```mermaid
 flowchart TD
-    S[Agendador local: intervalo de 15 minutos] --> C[Comando spotify:sync]
-    T[Tokens privados e renovação OAuth] --> C
-    C --> A[API Spotify: recently-played]
-    A --> R[Preservar os bytes originais da resposta]
-    R --> O[Objeto único por SHA-256, comprimido se menor]
-    R --> I[Recibo RAW e índice no PostgreSQL]
-    I --> N[Validar e normalizar cada item]
-    N --> P[Catálogo, plays e evidências]
-    P --> L[Análises locais por quantidade de plays]
-    N --> E[Novos detalhes, variantes, rejeições e contadores de repetidos]
-    P --> B[Resultado do batch e relatório privado]
-    E --> B
-    B --> M[Monitor consulta o banco a cada 5 segundos]
-    S --> H[Heartbeat a cada 5 segundos]
-    H --> M
+    A[Iniciar agendador e obter lock] --> B[Registrar estado coletando]
+    B --> C[Executar spotify:sync em processo filho]
+    C --> D[Registrar saída e próxima execução]
+    D --> E{Manutenção habilitada?}
+    E -->|Sim| F[Executar raw:maintain com apply, archive e if-due]
+    E -->|Não| G[Aguardar próximo ciclo]
+    F --> G
+    G --> B
+    H[Heartbeat a cada 5 segundos] -.-> B
+    H -.-> C
+    H -.-> F
+    H -.-> G
 ```
 
-O ponto central é a ordem: **guardar primeiro, interpretar depois**. Se o JSON estiver inválido, a API devolver um erro ou algum item não puder ser normalizado, os bytes recebidos continuam disponíveis para investigação.
+O intervalo conta desde o início do ciclo. Coleta ou manutenção demoradas podem atrasar o próximo. O heartbeat continua durante o processo filho e a espera. Com mais de vinte segundos sem atualização, o monitor não confirma atividade nem uma próxima execução.
 
-## Os serviços locais
+O lock do agendador é diferente do lock da ingestão/manutenção. Um comando manual também passa pelas proteções do coletor. SIGTERM/SIGINT são tratados para encerrar o filho e registrar a parada; interrupção abrupta pode deixar um batch `running` e o heartbeat envelhece.
 
-| Peça | Responsabilidade |
-| --- | --- |
-| `db` | PostgreSQL persistente, com eventos, catálogo, índices e auditoria |
-| `scheduler` | Processo PHP que inicia as coletas e a manutenção periódica |
-| `app` | Ambiente para comandos de administração, consulta, replay e testes |
-| `monitor` | Servidor PHP e páginas HTML/CSS/JavaScript do painel local |
-| `callback` | Recebe o retorno do Spotify durante a autorização OAuth |
+## 4. Uma coleta, passo a passo
 
-A aplicação funciona em PHP 8.4 com PostgreSQL 17. Na instalação conferida, os containers usam PHP 8.4.27 e PostgreSQL 17.11. Não há fila, Redis, framework de frontend ou build Node obrigatório.
+A entrada é `php app spotify:sync`, implementada por [Console](../src/Console.php), [Collector](../src/Ingestion/Collector.php) e [Ingestor](../src/Ingestion/Ingestor.php).
 
-O monitor é acessível em `http://127.0.0.1:8787`. O banco está publicado em `127.0.0.1:15432` nesta instalação; dentro da rede Docker, a aplicação o acessa como `db:5432`. O callback usa `127.0.0.1:8888` quando seu serviço é iniciado.
+1. Obter o lock de ingestão e abrir um `ingestion_batch`.
+2. Obter/renovar o token e conferir sua conta.
+3. Consultar `recently-played`, com limite padrão de 50 itens por página.
+4. Preservar os bytes de cada resposta HTTP antes de interpretar status, JSON, retry ou itens.
+5. Registrar o artefato com caminho, SHA-256, tamanho, recebimento e status HTTP.
+6. Validar e processar cada item, com transação e lock por identidade.
+7. Continuar pela paginação dentro do orçamento, registrar o motivo de parada e finalizar o batch.
+8. Escrever o relatório privado em `storage/reports/batch-<id>.json`.
 
-O volume Docker mantém o banco entre reinicializações dos containers. Fechar a página do monitor não para o scheduler. O computador e o Docker precisam continuar ligados para haver novas coletas.
-
-## Como a autorização funciona
-
-O comando `spotify:auth` gera uma URL para o Spotify. O usuário autoriza apenas o scope `user-read-recently-played`. O retorno contém um código temporário e um `state`, que precisam corresponder à solicitação iniciada localmente.
-
-O backend troca o código por tokens usando o segredo do aplicativo. O `state` vence em dez minutos e só pode ser usado uma vez. Os tokens ficam em `tokens/spotify.json`, fora do Git e das rotas públicas. As respostas de autenticação não são guardadas junto aos dados musicais.
-
-Quando o access token está próximo do vencimento, a aplicação usa o refresh token para renová-lo. Um lock impede duas renovações simultâneas. Se o Spotify responder `invalid_grant`, a autorização inválida é removida e passa a ser necessária uma nova autorização pelo usuário.
-
-O sistema também registra uma previsão de reautorização em seis meses. Essa data é um lembrete local; a aceitação efetiva do token depende do Spotify. Renovar o access token não reinicia a data original de autorização.
-
-A versão atual trabalha com **uma conta por banco e diretório de dados**. O backend verifica o `account_id` estável do perfil e guarda apenas seu hash no banco. Uma reautorização de outra conta é recusada antes de substituir os tokens, e um token novo precisa corresponder à conta antes de consultar o histórico. Tokens já verificados reutilizam o resultado; um 401 permite uma renovação antes de verificar novamente. Para um histórico anterior a essa proteção, o comando `spotify:account:bind` vincula o token atual uma única vez. Isso já foi feito nesta instalação, sem mudar as chaves existentes.
-
-## O que acontece a cada 15 minutos
-
-O scheduler executa `php app spotify:sync`. O comando inicia um batch, consulta o endpoint `GET /v1/me/player/recently-played` e pede, por padrão, até 50 itens por página. Esse limite por requisição também consta na [referência oficial do Spotify](https://developer.spotify.com/documentation/web-api/reference/get-recently-played).
-
-Cada resposta é preservada antes de interpretar status, JSON ou retries. Depois, os itens são validados: horário com timezone, identidade da faixa, tipos de campo, álbum, artistas e contexto. Os campos válidos alimentam o catálogo e as plays. Itens incompletos ou incompatíveis recebem estados e problemas próprios.
-
-O sync segue a URL `next` fornecida pelo Spotify, após validar host, caminho e parâmetros. Ele tem um orçamento padrão de 20 páginas. O comando separado `spotify:probe` investiga páginas anteriores com `cursors.before`; também pode inserir eventos antigos que ainda estejam ausentes.
-
-Em HTTP 401, o cliente tenta renovar o token uma vez. Em HTTP 429 comum, respeita `Retry-After` dentro do orçamento configurado. Uma espera acima desse orçamento encerra a tentativa com erro; ela não é encurtada. `QUOTA_EXCEEDED` encerra sem repetição cega. As respostas de erro também ficam preservadas.
-
-Um lock PostgreSQL impede duas ingestões simultâneas. Outro lock impede dois schedulers no mesmo banco. O intervalo é contado a partir do início do ciclo; coletas ou manutenções demoradas podem atrasar a execução seguinte. Quinze minutos equivalem a aproximadamente 96 ciclos diários quando a operação não atrasa; paginação e retries podem acrescentar chamadas HTTP.
-
-## Por que há mais respostas RAW do que plays
-
-São três coisas diferentes:
-
-| Conceito | Exemplo fictício |
-| --- | --- |
-| Resposta/artefato RAW | Uma consulta retornou uma lista de eventos |
-| Ocorrência | Um evento apareceu na posição 0 dessa resposta |
-| Play | A reprodução identificada como um evento do histórico |
-
-Se uma consulta retorna três eventos completos e a seguinte retorna os mesmos três com conteúdo conhecido, ficam duas respostas RAW, três ocorrências detalhadas e três plays. A segunda execução registra três repetidos omitidos no resumo, sem outras linhas por item. Variantes de conteúdo, dados incompletos, erros e revisão continuam detalhados. Registros anteriores à mudança são preservados. [Política de auditoria enxuta](auditoria-enxuta.md). Se os corpos das respostas forem idênticos byte por byte, os dois recebimentos também compartilham um único objeto de conteúdo.
-
-A chave de identidade da play combina uma versão da regra, o `played_at` convertido para UTC e a identidade da faixa. Usa o Spotify ID quando disponível, depois a URI; sem ambos, usa uma representação conservadora do payload. O nome da música não é usado para juntar eventos que têm uma identidade externa conhecida.
-
-Ouvir a mesma faixa em outro horário gera outra play. Receber novamente a mesma faixa no mesmo instante reutiliza a evidência existente. A API não fornece um identificador único de evento: duas reproduções indistinguíveis no mesmo timestamp e precisão não podem ser separadas com certeza por essa chave.
-
-A garantia contra duplicação fica no PostgreSQL, com constraints, locks e transações por item. Ela não depende apenas de uma consulta prévia feita pelo PHP ou de um marcador em memória.
-
-## Como o banco está organizado
-
-| Grupo | Tabelas e função |
-| --- | --- |
-| Origem e execuções | `data_sources` e `ingestion_batches` identificam a fonte e o resultado de cada execução |
-| Evidência original | `raw_artifacts` registra caminho, hash, tamanho, status HTTP e recebimento |
-| Ocorrências e problemas | `ingestion_records` guarda os detalhes necessários de eventos novos, variantes e exceções; repetições completas conhecidas ficam nos contadores do batch; `ingestion_issues` explica falhas |
-| Catálogo | `tracks`, `albums`, `artists` e `track_artists` representam as entidades e a ordem dos artistas |
-| Histórico | `plays` representa reproduções; `play_evidence` liga cada evento à fonte e à primeira ocorrência |
-| Armazenamento | `raw_objects`, `raw_storage_refs` e `raw_storage_runs` registram conteúdo compartilhado, referências e manutenção |
-| Agendador | `scheduler_runtime` informa intervalo, heartbeat, estado e próxima execução |
-
-Uma faixa é uma entidade de catálogo; uma play é um evento. Remaster, versão ao vivo e outras faixas com IDs Spotify diferentes continuam separadas. Não há união automática por nome, ISRC ou proximidade de horários. Múltiplos artistas mantêm a ordem recebida.
-
-Horários ficam armazenados em UTC e são exibidos no timezone configurado do monitor. `duration_ms` é a duração de catálogo da faixa. Ela não informa quanto tempo foi ouvido: `ms_played`, `skipped` e `shuffle` permanecem `NULL` quando a fonte não os fornece. Não há regra de duração mínima de reprodução nesta ingestão.
-
-## RAW, compressão, backup e replay
-
-O SHA-256 identifica os bytes exatos de cada resposta. Corpos iguais compartilham armazenamento; diferenças de espaços ou formatação produzem hashes diferentes. O conteúdo é comprimido em gzip quando isso reduz seu tamanho, e cada recebimento conserva uma referência própria.
-
-`raw:verify` recupera os bytes e confere os hashes. `raw:read ID` recupera o corpo original pela CLI, mesmo que esteja comprimido ou arquivado. `ingest:replay ID` cria outra execução usando um RAW já registrado, sem consultar novamente o Spotify. A deduplicação evita criar as mesmas plays outra vez.
-
-O índice RAW é gravado depois da publicação do arquivo. Se essa etapa de banco falhar, o arquivo pode ficar órfão e deve ser reconciliado. Não existe uma transação única entre filesystem e PostgreSQL. Arquivos parciais e órfãos não são apagados automaticamente.
-
-A manutenção automática verifica se já houve tentativa registrada nas últimas 24 horas. Quando devida, cria um snapshot com conteúdos RAW e dump do schema, restaura o dump em um banco temporário terminado em `_test` e compara os dados das tabelas. Só após a verificação autoriza a conversão de arquivos antigos ou a remoção de cópias ativas que tenham cobertura no arquivo.
-
-A política padrão permite arquivar conteúdos com pelo menos 30 dias e manter três snapshots completos do banco. Os corpos RAW únicos do arquivo não expiram. O banco, as ocorrências, as referências e os relatórios continuam crescendo.
-
-`storage/archive` fica no mesmo projeto e disco. A recuperação depende de preservar os objetos, os snapshots e o índice. `.env`, tokens e relatórios precisam de backup privado separado. A cópia em outro meio continua necessária para falha física. A rotação agora enumera arquivos ocultos e preserva snapshots com entradas desconhecidas. Tentativas aplicadas são registradas antes da varredura RAW, de modo que uma corrupção inicial aparece como falha e respeita o intervalo diário de novas tentativas.
-
-## O que o painel mostra
-
-`/` redireciona para `/dashboard`. Essa página mostra estado do agendador, intervalo em execução, próxima coleta, último sync, contadores de ingestão, armazenamento e lista paginada de batches. Os detalhes mostram problemas e referências dos RAW, sem oferecer os corpos para download.
-
-O scheduler grava um heartbeat a cada cinco segundos, inclusive enquanto o processo filho trabalha. Depois de vinte segundos sem sinal recente, o monitor deixa de confirmar atividade e próxima execução. A última coleta concluída, sozinha, não comprova que o agendador continua ligado.
-
-A página consulta o banco a cada cinco segundos enquanto está visível. Atualizar a tela não chama o Spotify, não inicia manutenção e não altera o intervalo. Alterar o intervalo no `.env` exige recriar o scheduler para carregar o novo ambiente.
-
-`/analytics` mostra rankings de faixas, artistas e álbuns, distribuições por hora/dia da semana e uma série diária, sempre pela contagem de `plays`. Filtros de calendário usam o fuso local; créditos de artistas não duplicam os demais totais. A tela consulta o banco ao abrir/aplicar filtros/atualizar, usando uma transação somente leitura e snapshot consistente. A credencial web pode ler as colunas selecionadas de data e catálogo, sem acesso a payloads ou contexto de escuta. [Critérios e limites das análises](analises.md).
-
-`/tests` descreve a cobertura e fornece comandos para copiar. Abrir essa página **não executa testes**. Tema claro/escuro é salvo no navegador; não envolve tokens Spotify. As rotas atuais só aceitam GET/HEAD e selecionam explicitamente os metadados enviados ao frontend. O monitor usa credencial PostgreSQL exclusiva de leitura, monta só código e dependências em leitura e não tem acesso ao `.env`, tokens, RAW ou backups. Hosts inesperados e consultas de outras origens são bloqueados antes de conectar ao banco.
-
-## Como interpretar o resultado de uma execução
-
-| Resultado | Significado |
-| --- | --- |
-| `completed`, saída 0 | A execução chegou a uma parada natural da consulta disponibilizada pela API |
-| `partial`, saída 2 | Orçamento/cursores impediram continuar ou houve itens incompletos/rejeitados |
-| `failed`, saída 1 | Houve erro de coleta ou processamento que encerrou a execução |
-| `running` antigo | Pode haver uma execução interrompida sem encerramento registrado |
-
-`completed` não significa histórico vitalício completo. A API possui uma janela acessível e pode atrasar eventos. Se o computador ficar desligado ou eventos saírem dessa janela, uma coleta posterior pode não recuperá-los. O sistema preserva o que recebeu, sem inventar os intervalos ausentes.
-
-Exports Account/Extended, matching entre fontes, equivalência entre versões musicais e múltiplas contas ainda dependem de implementação e decisões próprias. As fontes de export já aparecem no schema, mas isso não significa que seus importadores existam. Os rankings e distribuições locais foram implementados em 11/11/2026 conforme a [decisão 007](decisions/007-local-listening-analytics.md).
-
-## Comandos úteis para conferir a instalação
-
-```powershell
-docker compose ps
-docker compose run --no-deps --rm -T app php app spotify:auth:status
-docker compose run --no-deps --rm -T app php app ingestion:list
-docker compose run --no-deps --rm -T app php app raw:verify
-docker compose run --no-deps --rm -T app composer test:all
-docker compose run --no-deps --rm -T app composer audit --locked
+```mermaid
+flowchart TD
+    H[Resposta HTTP] --> R[Salvar conteúdo e referência RAW]
+    R --> I[Registrar artefato no banco]
+    I --> V[Validar página e cada item]
+    V --> N{Identidade de evento conhecida?}
+    N -->|Não| P[Catálogo, play, evidência e detalhe]
+    N -->|Sim| Q{Payload completo já processado na mesma versão?}
+    Q -->|Sim| O[Somar repetição omitida nos contadores]
+    Q -->|Não| A[Detalhar variante, incompleto ou problema]
+    P --> F[Resumo do batch e relatório]
+    O --> F
+    A --> F
 ```
 
-Os testes usam dados sintéticos, arquivos temporários e banco separado do principal com nome terminado em `_test`. Eles não chamam o Spotify com os tokens reais. A suíte atual validou autenticação simulada, paginação, deduplicação, preservação e recuperação RAW, banco, scheduler e rotas HTTP. Os novos casos da auditoria demonstram por que a cobertura precisa evoluir junto com as garantias do sistema.
+**Guardar primeiro, interpretar depois** permite investigar erros HTTP, JSON inválido e rejeições sem perder o conteúdo recebido. OAuth e perfil de conta usam armazenamento/controle próprios, fora desse RAW musical.
+
+O sync segue `next` retornado, validando HTTPS, host, endpoint e parâmetros. Seu orçamento padrão é 20 páginas. O comando investigativo `spotify:probe` retrocede por `cursors.before`, com orçamento padrão de 100 páginas; também pode inserir eventos antigos ausentes. Nenhum dos dois inventa cursores a partir do maior timestamp local.
+
+HTTP 401 permite uma renovação. `429` comum respeita `Retry-After` dentro do orçamento; uma espera excessiva encerra a tentativa sem encurtá-la. `QUOTA_EXCEEDED` encerra sem retry cego. [Integração Spotify](referencia/spotify-api.md).
+
+## 5. Resposta, ocorrência, evidência e play
+
+| Conceito | Significado |
+| --- | --- |
+| RAW / artefato | Um recebimento completo, inclusive resposta de erro ou lista vazia |
+| Payload de item | O objeto de uma posição daquela resposta |
+| Ocorrência detalhada | Linha de `ingestion_records` para novo evento, variante ou exceção |
+| Evidência | Vínculo entre identidade da fonte, primeira ocorrência e play |
+| Play | Um evento de reprodução normalizado |
+| Catálogo | Faixas, artistas, álbuns e seus metadados conhecidos |
+
+Exemplo fictício: uma consulta traz três eventos completos e outra traz os mesmos três com conteúdo conhecido. Ficam dois recebimentos RAW e três plays; a segunda execução registra três repetidos sem outras linhas individuais. Corpos idênticos byte a byte compartilham um objeto. Variantes de conteúdo, erros e dados incompletos continuam detalhados.
+
+São três critérios diferentes: hash dos **bytes do corpo** para armazenamento; hash **canônico do item** para saber se o conteúdo já foi processado; chave de **identidade do evento** para impedir duplicação de plays.
+
+A chave de evento combina versão, `played_at` em UTC e identidade da faixa: Spotify ID, depois URI, depois fingerprint conservador do payload. A mesma faixa em outro horário gera outra play. A API não fornece um identificador único do evento; dois eventos indistinguíveis na mesma precisão temporal podem coincidir na chave.
+
+A constraint `UNIQUE(source_id, source_record_key)`, os locks e as transações protegem a atribuição. Nomes, ISRC ou proximidade temporal não unem versões ou fontes. Metadados são uma projeção atual: um novo evento pode atualizá-los, observações antigas não sobrescrevem as mais novas e uma repetição deduplicada não reescreve o catálogo.
+
+Veja [Schema](referencia/schema.md) e [Auditoria enxuta](referencia/auditoria-enxuta.md) para os detalhes.
+
+## 6. Armazenamento, backup e replay
+
+| Local | Conteúdo |
+| --- | --- |
+| `storage/raw/` | Referências por recebimento e objetos ativos compartilhados |
+| `storage/archive/objects/` | Conteúdos RAW únicos preservados no arquivo privado |
+| `storage/archive/snapshots/` | Dumps, manifestos e provas de restauração |
+| `storage/reports/` | Resumos de coletas e replays |
+| `tokens/` | Estado OAuth e tokens privados |
+| Volume PostgreSQL | Catálogo, plays, índice de artefatos, auditoria e estado operacional |
+
+Os caminhos são configuráveis. Gzip é usado quando reduz o tamanho e não altera os bytes recuperados. Hash e tamanho de `raw_artifacts` descrevem o corpo original, não o arquivo de referência ou o gzip. `raw:read` recupera esses bytes e `raw:verify` confere sua integridade.
+
+Filesystem e PostgreSQL não têm transação distribuída. Se o arquivo for publicado e o índice falhar, sobra um RAW órfão preservado; um crash também pode deixar `.partial`. Esses arquivos não são apagados automaticamente.
+
+```mermaid
+flowchart LR
+    A[Manutenção aplicada e devida] --> V[Verificar conteúdos e planejar]
+    V --> B[Backup do RAW e snapshot do banco quando necessário]
+    B --> T[Restaurar em banco temporário _test]
+    T --> C[Comparar tabelas e hashes]
+    C --> M[Converter legados e arquivar ativos elegíveis]
+    M --> R[Conferir leitura e rotacionar snapshots permitidos]
+```
+
+A tentativa aplicada é registrada antes da varredura. Com `--if-due`, outra tentativa fica bloqueada por 24 horas mesmo após falha. Sem dados ou trabalho que exija backup, a execução pode terminar sem um novo snapshot. Conversão de legados e liberação de conteúdo ativo exigem cobertura verificada no backup.
+
+Por padrão, conteúdo elegível com 30 dias pode sair da pasta ativa, preservado no arquivo; conservam-se três snapshots completos verificados e todos os corpos RAW únicos. Arquivos desconhecidos, inclusive ocultos, impedem remover um snapshot. O arquivo no mesmo disco precisa de cópia privada externa para proteger contra perda física.
+
+`ingest:replay ID` confere um artefato HTTP 200, cria outro batch e recebimento, preserva a data original de observação dos metadados e reaplica a normalização sem Spotify. A deduplicação reutiliza as plays conhecidas. A CLI não oferece rebuild destrutivo nem restauração sobre o banco principal. [Procedimentos de recuperação](referencia/raw-storage.md).
+
+## 7. Do banco ao navegador
+
+```mermaid
+sequenceDiagram
+    participant B as Navegador
+    participant M as Monitor local
+    participant D as PostgreSQL
+    B->>M: Abrir página ou consultar API local
+    M->>M: Validar host, origem e método
+    M->>D: Transação REPEATABLE READ, READ ONLY
+    D-->>M: Campos permitidos e agregações
+    M-->>B: HTML ou JSON selecionado
+```
+
+`/` redireciona para `/analytics`. [Análises](guias/analises.md) consulta ao abrir, aplicar filtros ou atualizar; usa plays e catálogo para rankings, métricas, comparações e distribuições. [Dashboard](guias/monitor.md), em `/dashboard`, consulta o banco a cada cinco segundos enquanto visível. `/tests` descreve a suíte sem executá-la.
+
+O [router](../monitor/router.php) aceita GET/HEAD, valida a origem local e seleciona arquivos/rotas públicos. O monitor usa credencial PostgreSQL dedicada de leitura, recebe somente seu secret e monta `src`, `monitor` e `vendor` em leitura. Não carrega `.env` nem monta tokens, RAW, relatórios ou backups. O backend administrativo e o scheduler têm outro escopo de acesso.
+
+Atualizar uma tela não chama o Spotify, inicia coleta ou manutenção. A interface não controla containers. O tema fica salvo no navegador. Outros processos locais não são autenticados por essa proteção de origem; a máquina precisa ser confiável e a aplicação continua pessoal e local.
+
+## 8. Significado e limites dos resultados
+
+| Estado da coleta | Interpretação |
+| --- | --- |
+| `completed`, saída 0 | Parada natural disponibilizada pela consulta |
+| `partial`, saída 2 | Limite de paginação/progresso ou itens incompletos/rejeitados/para revisão |
+| `failed`, saída 1 | Falha que encerrou o processamento |
+| `running` antigo | Pode representar interrupção sem fechamento registrado |
+
+`duration_ms` é duração de catálogo, não tempo ouvido. `ms_played`, `skipped` e `shuffle` permanecem `NULL` se a fonte não os fornece. Não há duração mínima de escuta na ingestão.
+
+Timestamps ficam em UTC; filtros e exibição usam o timezone configurado. Dias sem registros podem refletir ausência de escuta ou lacuna de captura. Sucesso HTTP, primeiro/último evento e batch concluído não comprovam cobertura contínua ou vitalícia.
+
+Importação Account/Extended, correspondência API/export, equivalência entre versões musicais, observação de reprodução atual e múltiplas contas ainda exigem implementação e decisões próprias. As fontes de export cadastradas no schema não implicam importadores existentes. [Pesquisas e evidências](README.md#pesquisas-e-histórico).

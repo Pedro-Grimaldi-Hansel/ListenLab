@@ -1,8 +1,10 @@
 # Correções de segurança aplicadas — 10/11/2026
 
+> Registro datado de implementação e validação. Para procedimentos atuais, use [Operação local](../guias/operacao.md) e [Instalação](../guias/instalacao.md). Avisos de imagens abaixo descrevem a consulta daquela data, sem uma nova análise de vulnerabilidades nesta revisão documental.
+
 As alterações foram implementadas e aplicadas à instalação local por solicitação do proprietário. Banco, monitor e coleta estão ativos. O `.env` e os registros anteriores de `plays` e `raw_artifacts` mantiveram seus hashes; a coleta retomada terminou com código zero. O volume PostgreSQL existente foi preservado.
 
-Este documento complementa o [diagnóstico inicial](auditoria-2026-11-10.md) e a [explicação do funcionamento](funcionamento-atual.md). O código permanece na árvore de trabalho para revisão e commit do proprietário; não houve commit, push, PR ou publicação externa pelo assistente.
+Este documento complementa o [diagnóstico inicial](auditoria-2026-11-10.md) e a [explicação do funcionamento](../funcionamento-atual.md). O código permanece na árvore de trabalho para revisão e commit do proprietário; não houve commit, push, PR ou publicação externa pelo assistente.
 
 ## Situação dos achados
 
@@ -59,7 +61,7 @@ A rotação usa `FilesystemIterator::SKIP_DOTS`, que inclui entradas ocultas e e
 
 O monitor usa sua própria imagem, filesystem de container somente leitura, execução sem capabilities, `no-new-privileges`, limite de processos e `/tmp` limitado. Monta apenas `vendor`, `src` e `monitor` em leitura. Não monta a raiz do projeto.
 
-O usuário `listenlab_monitor` não é superusuário e não pode criar bancos ou roles. Na correção original recebeu SELECT nas tabelas operacionais necessárias e somente a coluna `id` de `plays`, suficiente para contagem. Em 11/11/2026, a pedido do proprietário, as [análises locais](analises.md) ampliaram a leitura para `id/track_id/played_at` de `plays` e colunas selecionadas do catálogo. `ingestion_records`, contexto de escuta e vínculo privado da conta continuam sem acesso. Sua senha aleatória fica em `storage/secrets/monitor-db-password`, ignorada pelo Git, e entra no container como Docker secret. A senha administrativa do proprietário não foi alterada.
+O usuário `listenlab_monitor` não é superusuário e não pode criar bancos ou roles. Na correção original recebeu SELECT nas tabelas operacionais necessárias e somente a coluna `id` de `plays`, suficiente para contagem. Em 11/11/2026, a pedido do proprietário, as [análises locais](../guias/analises.md) ampliaram a leitura para `id/track_id/played_at` de `plays` e colunas selecionadas do catálogo. `ingestion_records`, contexto de escuta e vínculo privado da conta continuam sem acesso. Sua senha aleatória fica em `storage/secrets/monitor-db-password`, ignorada pelo Git, e entra no container como Docker secret. A senha administrativa do proprietário não foi alterada.
 
 `monitor:provision` reutiliza o secret gerado, reaplica os grants mínimos da role gerenciada e recusa um usuário PostgreSQL existente que não tenha a identificação da aplicação. Deve ser executado com a credencial administrativa, depois das migrations. O ambiente CLI, o scheduler e o callback mantêm a configuração administrativa existente; esta alteração isola especificamente o processo do monitor. A instalação continua pessoal e local.
 
@@ -71,7 +73,7 @@ O backend consulta `/v1/me` quando precisa verificar um novo access token e usa 
 
 A reautorização candidata é conferida antes de substituir o arquivo de tokens. A coleta também verifica o token antes de aceitar outro histórico. O resultado é reutilizado para o mesmo token, evitando uma consulta de perfil a cada página. Um 401 permite uma renovação antes de verificar novamente; uma conta diferente continua sendo recusada.
 
-Nesta instalação, o vínculo inicial foi feito com o token já existente. Não houve troca de conta, alteração das plays ou mudança da versão da chave. Esse vínculo protege operações futuras; os RAW antigos não contêm a identidade da conta e não permitem provar retroativamente sua titularidade. Múltiplas contas continuam fora do escopo. [Decisão 006](decisions/006-local-security-boundaries.md).
+Nesta instalação, o vínculo inicial foi feito com o token já existente. Não houve troca de conta, alteração das plays ou mudança da versão da chave. Esse vínculo protege operações futuras; os RAW antigos não contêm a identidade da conta e não permitem provar retroativamente sua titularidade. Múltiplas contas continuam fora do escopo. [Decisão 006](../decisions/006-local-security-boundaries.md).
 
 ## Imagens e avisos que permanecem
 

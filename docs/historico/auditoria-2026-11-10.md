@@ -1,5 +1,7 @@
 # Avaliação do ListenLab — 10/11/2026
 
+[Histórico](README.md) · [Funcionamento atual](../funcionamento-atual.md)
+
 Este documento registra o diagnóstico anterior às correções. O estado aplicado, as verificações e os avisos ainda pendentes estão em [Correções de segurança](correcoes-seguranca-2026-11-10.md).
 
 Base examinada: commit `33ed9c809dd177fd2d7e61b0927707786347726f`, coincidente entre a instalação local e `main` no GitHub. O repositório está público. A árvore de trabalho estava limpa no início da revisão.
@@ -8,7 +10,7 @@ O coletor está operacional para o uso pessoal e local previsto. A revisão enco
 
 Esta avaliação distingue defeitos reproduzidos, riscos condicionais de configuração e alertas de componentes. Testes aprovados e consultas de CVEs não constituem garantia de ausência de vulnerabilidades.
 
-Para uma explicação do fluxo de dados, consulte [Como o sistema funciona](funcionamento-atual.md).
+Para uma explicação do fluxo de dados, consulte [Como o sistema funciona](../funcionamento-atual.md).
 
 ## Escopo e verificação
 
@@ -49,7 +51,7 @@ Prioridade representa ordem de trabalho neste projeto. Não é uma pontuação C
 
 ## A1 — Arquivos ocultos escapam da proteção de rotação
 
-Evidência: [RawBackup.php:106](../src/Storage/RawBackup.php#L106) e [RawBackup.php:123](../src/Storage/RawBackup.php#L123).
+Evidência: [RawBackup.php:106](../../src/Storage/RawBackup.php#L106) e [RawBackup.php:123](../../src/Storage/RawBackup.php#L123).
 
 `rotate()` enumera os arquivos com `glob($directory.'/*')`. Esse padrão não inclui entradas iniciadas por ponto no ambiente Linux do container. A proteção que deveria preservar diretórios com arquivos desconhecidos, portanto, não enxerga um arquivo como `.owner-note`.
 
@@ -68,7 +70,7 @@ Correção proposta: enumerar todas as entradas, incluindo ocultas, com `Filesys
 
 ## A2 — Corrupção inicial pode deixar um resultado anterior como concluído
 
-Evidência: [RawMaintenance.php:28](../src/Storage/RawMaintenance.php#L28), [RawMaintenance.php:36](../src/Storage/RawMaintenance.php#L36), [RawMaintenance.php:71](../src/Storage/RawMaintenance.php#L71), [Monitor.php:111](../src/Monitoring/Monitor.php#L111) e [app.js:55](../monitor/public/assets/app.js#L55).
+Evidência: [RawMaintenance.php:28](../../src/Storage/RawMaintenance.php#L28), [RawMaintenance.php:36](../../src/Storage/RawMaintenance.php#L36), [RawMaintenance.php:71](../../src/Storage/RawMaintenance.php#L71), [Monitor.php:111](../../src/Monitoring/Monitor.php#L111) e [app.js:55](../../monitor/public/assets/app.js#L55).
 
 A manutenção verifica todos os RAW antes de criar sua linha em `raw_storage_runs`. Se um conteúdo ativo estiver corrompido, `readVerified()` lança uma exceção enquanto `$runId` ainda é `null`. O bloco de erro só atualiza uma linha quando esse identificador já existe.
 
@@ -86,7 +88,7 @@ Correção proposta: registrar a tentativa aplicada antes da varredura que pode 
 
 ## A3 — O processo web tem privilégios de administração e acesso a segredos
 
-Evidência: [compose.yaml:3](../compose.yaml#L3), [compose.yaml:10](../compose.yaml#L10), [compose.yaml:60](../compose.yaml#L60), [Database.php:16](../src/Database.php#L16) e [router.php:39](../monitor/router.php#L39).
+Evidência: [compose.yaml:3](../../compose.yaml#L3), [compose.yaml:10](../../compose.yaml#L10), [compose.yaml:60](../../compose.yaml#L60), [Database.php:16](../../src/Database.php#L16) e [router.php:39](../../monitor/router.php#L39).
 
 O monitor herda o mesmo ambiente, usuário e montagem gravável de todo o projeto usados pelo coletor. A conexão PostgreSQL também usa a mesma credencial. Uma leitura das permissões, executada no container do monitor, confirmou:
 
@@ -114,7 +116,7 @@ O impacto de um comprometimento seria alto. A revisão não encontrou uma rota q
 
 ## A4 — O servidor aceita nomes de host externos
 
-Evidência: [monitor/router.php:8](../monitor/router.php#L8). Não existe validação de `Host`, `Origin` ou autenticação na API operacional.
+Evidência: [monitor/router.php:8](../../monitor/router.php#L8). Não existe validação de `Host`, `Origin` ou autenticação na API operacional.
 
 Uma requisição local a `/api/status`, com `Host: audit.invalid:8787` e `Origin: http://audit.invalid:8787`, recebeu HTTP 200 e o JSON operacional. Isso confirma a aceitação de um host inesperado. Não foi feito um ataque completo de DNS rebinding no navegador.
 
@@ -166,7 +168,7 @@ Ação proposta: reduzir a imagem final, separando ferramentas de build; acompan
 
 ## A6 — A conta Spotify é uma convenção, não uma barreira persistente
 
-Evidência: [OAuth.php:80](../src/Spotify/OAuth.php#L80), [Batches.php:17](../src/Ingestion/Batches.php#L17) e [RecentlyPlayedParser.php:87](../src/Ingestion/RecentlyPlayedParser.php#L87).
+Evidência: [OAuth.php:80](../../src/Spotify/OAuth.php#L80), [Batches.php:17](../../src/Ingestion/Batches.php#L17) e [RecentlyPlayedParser.php:87](../../src/Ingestion/RecentlyPlayedParser.php#L87).
 
 A autorização guarda o identificador do aplicativo e os tokens, mas não vincula o dataset a um identificador estável da conta. A fonte é sempre `spotify_api`; a chave de evento usa horário e identidade da faixa, sem escopo de conta.
 
@@ -176,7 +178,7 @@ Antes de habilitar troca ou múltiplas contas, persistir a identidade estável d
 
 ## A7 — A CI valida comportamento, mas pode automatizar mais verificações
 
-Evidência: [.github/workflows/tests.yml:23](../.github/workflows/tests.yml#L23).
+Evidência: [.github/workflows/tests.yml:23](../../.github/workflows/tests.yml#L23).
 
 O workflow instala dependências, valida Composer, verifica sintaxe e executa testes com PostgreSQL separado. Não inclui `composer audit --locked` explícito, scan de imagens nem uma declaração de permissões mínimas do token. As Actions são referenciadas por `@v4` e `@v2`, tags que podem mudar.
 

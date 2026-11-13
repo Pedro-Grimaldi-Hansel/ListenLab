@@ -1,6 +1,8 @@
 # Auditoria enxuta das coletas
 
-Em 11/11/2026, o proprietário autorizou parar de criar detalhes individuais para repetições idênticas já conhecidas. A ingestão cria `ingestion_records` para eventos novos, variantes de conteúdo e exceções. [Decisão 008](decisions/008-compact-item-audit.md).
+[Índice](../README.md) · [Fluxo da ingestão](../funcionamento-atual.md#5-resposta-ocorrência-evidência-e-play) · [Comandos e contadores](comandos.md)
+
+Em 11/11/2026, o proprietário autorizou parar de criar detalhes individuais para repetições idênticas já conhecidas. A ingestão cria `ingestion_records` para eventos novos, variantes de conteúdo e exceções. [Decisão 008](../decisions/008-compact-item-audit.md).
 
 ## Exemplo
 
@@ -37,7 +39,7 @@ O detalhe individual de cada repetição omitida deixa de existir. A origem rece
 
 O ganho é evitar crescimento de linhas para repetições normais. RAW, recibos, metadados de batches e relatórios continuam crescendo; o espaço total deve ser medido novamente antes de substituir as estimativas anteriores por uma previsão anual.
 
-## Validação
+## Validação registrada em 11/11/2026
 
 Os testes usam apenas fixtures e bancos separados terminados em `_test`. Cobrem a janela de 50 itens com dois novos, preservação das linhas anteriores, variantes, replay, erros/incompletos, JSON incompatível, payload legado, versão do normalizador, adulteração de RAW sem auditoria por item e dois processos concorrentes. A suíte completa também verifica restauração de backups, análises e monitor.
 

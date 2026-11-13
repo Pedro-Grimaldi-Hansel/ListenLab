@@ -59,7 +59,7 @@ final class MonitorAccess
                     'plays' => 'id,track_id,played_at',
                     'tracks' => 'id,name,album_id',
                     'artists' => 'id,name',
-                    'albums' => 'id,name',
+                    'albums' => 'id,name,release_date',
                     'track_artists' => 'track_id,artist_id,position',
                 ] as $table => $columns) {
                     $this->db->exec('GRANT SELECT (' . $columns . ') ON ' . $schema . '.' . $this->identifier($table) . ' TO ' . $quotedRole);

@@ -1,5 +1,7 @@
 # Resultado do primeiro experimento
 
+> Experimento e validações de 10/11/2026. A frequência inicial de cinco minutos, o modelo de ocorrências e as pendências visuais abaixo são históricos. O padrão atual é quinze minutos; repetições completas conhecidas podem ficar só nos contadores. Consulte [Funcionamento](../funcionamento-atual.md), [Auditoria enxuta](../referencia/auditoria-enxuta.md) e [Histórico](../historico/README.md).
+
 Data: 10/11/2026. **Sync autenticado e primeiro probe validados no Windows pelos logs fornecidos pelo proprietário.** A autorização e a coleta ocorreram no computador local; os resultados reais abaixo são evidência relatada pelo usuário, separada dos testes sintéticos executados em nuvem. A janela observada é uma medição pontual, sem garantia de retenção futura.
 
 ## Coleta real relatada pelo proprietário
@@ -51,7 +53,7 @@ Intervalos de 10–15 minutos podem reduzir chamadas e armazenamento RAW, com me
 
 A atualização do monitor foi integrada à pasta Windows existente. Após adicionar tema claro/escuro, o catálogo de testes e a separação explícita em `/dashboard` e `/tests`, a suíte local final passou com **67 testes e 568 assertions**, em PHP 8.4.27 e PostgreSQL 17, usando somente `listenlab_test` e schemas temporários. Composer, lint PHP e rotas HTTP locais passaram. Os testes HTTP permanentes usam uma conexão somente leitura; o teste do scheduler confirma heartbeat durante uma tarefa sintética e encerramento por SIGTERM. O catálogo é conferido contra os métodos e variações da suíte. A lógica do tema e da busca foi validada em execução JavaScript isolada, sem considerar isso uma revisão visual do navegador.
 
-`raw:verify` confirmou SHA-256 dos 48 artefatos registrados na verificação final, incluindo novos RAW do scheduler. Os arquivos privados anteriores e os registros existentes de plays/artefatos mantiveram seus hashes. A migration 002 acrescentou a tabela operacional, preservando o volume e as tabelas de histórico. Monitor e scheduler estão ativos localmente; o intervalo efetivo observado foi de 300 segundos, com última coleta concluída. A inspeção visual foi bloqueada pela ferramenta por não conseguir confirmar a URL do Chrome e permanece pendente. Não houve commit ou push. Ver [continuidade no VS Code](continuar-no-vscode.md).
+`raw:verify` confirmou SHA-256 dos 48 artefatos registrados na verificação final, incluindo novos RAW do scheduler. Os arquivos privados anteriores e os registros existentes de plays/artefatos mantiveram seus hashes. A migration 002 acrescentou a tabela operacional, preservando o volume e as tabelas de histórico. Monitor e scheduler estão ativos localmente; o intervalo efetivo observado foi de 300 segundos, com última coleta concluída. A inspeção visual foi bloqueada pela ferramenta por não conseguir confirmar a URL do Chrome e permanece pendente. Não houve commit ou push. Ver [continuidade no VS Code](../continuar-no-vscode.md).
 
 ### Evidência anterior registrada no pacote
 

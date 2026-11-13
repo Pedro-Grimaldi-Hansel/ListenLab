@@ -1,5 +1,7 @@
 # Confiabilidade do histórico recente do Spotify
 
+> Pesquisa de 10/11/2026, preservada como evidência datada. Algumas propostas de frequência e armazenamento foram implementadas depois, e o vínculo de conta passou a usar identificador estável. Veja o [funcionamento atual](../funcionamento-atual.md) e as decisões [005](../decisions/005-shared-raw-storage.md), [006](../decisions/006-local-security-boundaries.md) e [008](../decisions/008-compact-item-audit.md). Relatos de incidentes não identificam a causa de uma falha atual.
+
 Pesquisa em 10/11/2026. Este documento registra evidências e propostas; não altera o intervalo, as credenciais, o schema ou a política de armazenamento.
 
 ## Conclusão

@@ -4,6 +4,7 @@ const $ = id => document.getElementById(id);
 const number = value => new Intl.NumberFormat('pt-BR').format(value);
 const reproductions = value => `${number(value)} ${value === 1 ? 'reprodução' : 'reproduções'}`;
 const percent = value => `${new Intl.NumberFormat('pt-BR', {maximumFractionDigits: 1}).format(value)}%`;
+const decimal = value => new Intl.NumberFormat('pt-BR', {maximumFractionDigits: 1}).format(value);
 const text = (id, value) => { $(id).textContent = value; };
 const node = (tag, cls = '', value = '') => Object.assign(document.createElement(tag), {className: cls, textContent: value});
 const weekdayNames = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
@@ -16,6 +17,68 @@ function date(value) {
 }
 function calendar(value) { return value.split('-').reverse().join('/'); }
 function name(value, fallback) { return typeof value === 'string' && value.trim() ? value : fallback; }
+function dateOnly(value) { return new Intl.DateTimeFormat('pt-BR', {timeZone: timezone, dateStyle: 'short'}).format(new Date(value)); }
+
+function comparisonNote(comparison) {
+  if (!comparison.available) {
+    return {
+      all_history: 'Selecione um período de datas para comparar com o anterior.',
+      insufficient_history: 'Sem base comparável: o histórico registrado ainda não alcança o início do período anterior.',
+      future_dates: 'Comparação indisponível para períodos com datas futuras.',
+      outside_range: 'O período anterior fica fora do intervalo de datas suportado.'
+    }[comparison.status] || 'Sem base comparável.';
+  }
+  return `Comparação com ${calendar(comparison.from)} a ${calendar(comparison.to)}${comparison.partial ? `, até ${new Intl.DateTimeFormat('pt-BR', {timeZone: timezone, timeStyle: 'short'}).format(new Date(comparison.until_at))} no último dia (mesmo trecho transcorrido)` : ' (mesma quantidade de dias)'}. As contagens refletem os eventos registrados e podem ter lacunas.`;
+}
+
+function renderMetrics(data) {
+  const summary = data.summary;
+  const comparison = data.comparison;
+  for (const metric of ['plays', 'tracks', 'artists', 'albums']) text(`stat-${metric}`, number(summary[metric]));
+  text('stat-average', summary.plays_per_active_day === null ? '—' : decimal(summary.plays_per_active_day));
+  text('active-days', summary.active_days ? `${reproductions(summary.plays)} ÷ ${number(summary.active_days)} ${summary.active_days === 1 ? 'dia com registros' : 'dias com registros'}` : 'Nenhum dia com reproduções registradas neste período.');
+  text('stat-concentration', summary.top_artists_share_pct === null ? '—' : percent(summary.top_artists_share_pct));
+  text('concentration-title', summary.top_artists_count === 1 ? 'Seu artista mais ouvido' : summary.top_artists_count ? `Seus ${number(summary.top_artists_count)} artistas mais ouvidos` : 'Seus artistas mais ouvidos');
+  text('concentration-detail', summary.plays ? `${number(summary.top_artists_plays)} de ${reproductions(summary.plays)}` : 'Nenhuma reprodução registrada neste período.');
+  const concentrationMeter = $('concentration-meter');
+  concentrationMeter.hidden = summary.top_artists_share_pct === null;
+  concentrationMeter.value = summary.top_artists_share_pct ?? 0;
+  concentrationMeter.setAttribute('aria-valuetext', summary.plays ? `${percent(summary.top_artists_share_pct)}: ${number(summary.top_artists_plays)} de ${reproductions(summary.plays)}` : 'Sem dados');
+  concentrationMeter.title = 'Cada reprodução conta uma vez, mesmo quando tem vários desses artistas.';
+  const note = comparisonNote(comparison);
+  text('comparison-note', note);
+  for (const metric of ['plays', 'tracks', 'artists', 'albums', 'plays_per_active_day', 'top_artists_share_pct']) {
+    const element = $(`delta-${metric}`);
+    element.className = 'metric-delta';
+    element.title = note;
+    element.hidden = !comparison.available;
+    if (!comparison.available) { element.textContent = ''; continue; }
+    const delta = comparison.deltas[metric];
+    const points = metric === 'top_artists_share_pct';
+    const change = points ? delta.change_pp : delta.change_pct;
+    if (change === null) {
+      element.textContent = delta.previous === 0 ? 'Zero no anterior' : 'Sem dados comparáveis';
+      element.title = `${note} Não há percentual calculável para esta métrica.`;
+      continue;
+    }
+    element.classList.add(change > 0 ? 'change-up' : change < 0 ? 'change-down' : 'change-same');
+    element.textContent = `${change > 0 ? '▲' : change < 0 ? '▼' : '='} ${points ? `${decimal(Math.abs(change))} pontos percentuais` : percent(Math.abs(change))} vs. anterior`;
+    const previous = delta.previous === null ? 'sem dados' : points ? percent(delta.previous) : decimal(delta.previous);
+    element.title = `${note} Valor anterior: ${previous}.`;
+  }
+  const sentences = [];
+  if (!summary.plays) sentences.push('Nenhuma reprodução registrada no período selecionado.');
+  else {
+    sentences.push(`${reproductions(summary.plays)} em ${number(summary.active_days)} ${summary.active_days === 1 ? 'dia ativo' : 'dias ativos'}, com média de ${decimal(summary.plays_per_active_day)} por dia ativo.`);
+    if (comparison.available) {
+      const change = comparison.deltas.plays.change_pct;
+      if (change === null) sentences.push('O período anterior não teve reproduções registradas.');
+      else sentences.push(change === 0 ? 'O total de reproduções se manteve em relação ao período anterior.' : `${percent(Math.abs(change))} ${change > 0 ? 'mais' : 'menos'} reproduções que no período anterior.`);
+    }
+    if (summary.top_artists_count) sentences.push(`${summary.top_artists_count === 1 ? 'O artista mais ouvido aparece' : `Os ${number(summary.top_artists_count)} artistas mais ouvidos aparecem`} em ${percent(summary.top_artists_share_pct)} das reproduções.`);
+  }
+  text('listening-summary', sentences.join(' '));
+}
 
 function renderRankings(data) {
   for (const type of ['tracks', 'artists', 'albums']) {
@@ -29,10 +92,30 @@ function renderRankings(data) {
       const identity = node('div', 'ranking-identity');
       const title = node('strong', '', name(item.name, type === 'tracks' ? 'Faixa sem nome' : type === 'artists' ? 'Artista sem nome' : 'Álbum sem nome'));
       title.title = `${title.textContent} · catálogo #${item.id}`;
-      identity.append(title);
+      const heading = node('div', 'ranking-title');
+      heading.append(title);
+      if (item.change_status !== 'unavailable') {
+        const change = item.rank_change;
+        const badge = node('span', `rank-change ${item.change_status === 'up' || item.change_status === 'new' ? 'change-up' : item.change_status === 'down' ? 'change-down' : 'change-same'}`,
+          item.change_status === 'new' ? 'Novo' : change === 0 ? '=' : `${change > 0 ? '▲' : '▼'}${number(Math.abs(change))}`);
+        badge.title = item.change_status === 'new' ? 'Sem reproduções no período anterior. Não significa primeira escuta.'
+          : `Posição anterior: ${number(item.previous_rank)}. ${change === 0 ? 'Mesma posição.' : `${Math.abs(change)} ${Math.abs(change) === 1 ? 'posição' : 'posições'} ${change > 0 ? 'acima' : 'abaixo'}.`}`;
+        badge.setAttribute('aria-label', badge.title);
+        heading.append(badge);
+      }
+      identity.append(heading);
       if (type === 'tracks') {
         identity.append(node('span', '', `${name(item.artists, 'Artista não informado')} · ${name(item.album, 'Álbum não informado')}`));
       }
+      const dates = node('div', 'ranking-dates');
+      for (const [key, label] of [['first_play_at', '1ª'], ['last_play_at', 'Última']]) {
+        const stamp = node('time', '', `${label}: ${dateOnly(item[key])}`);
+        stamp.dateTime = item[key];
+        stamp.title = `${label === '1ª' ? 'Primeira' : 'Última'} reprodução em todo o histórico registrado: ${date(item[key])}`;
+        stamp.setAttribute('aria-label', stamp.title);
+        dates.append(stamp);
+      }
+      identity.append(dates);
       const count = node('strong', 'ranking-value', number(item.plays));
       count.setAttribute('aria-label', reproductions(item.plays));
       count.title = `${reproductions(item.plays)} · ${percent(item.share_pct)} do total do período`;
@@ -93,11 +176,23 @@ function renderDistributions(data) {
   renderColumns('daily-chart', daily.items, item => calendar(item.date).slice(0, 5), item => `${calendar(item.date)}: ${reproductions(item.plays)}`);
   text('daily-range', daily.from ? `${calendar(daily.from)} a ${calendar(daily.to)}${daily.truncated ? ' · últimos 90 dias do recorte' : ''}` : 'A série começa com o primeiro evento registrado.');
   text('daily-note', `${daily.truncated ? 'Gráfico limitado aos últimos 90 dias. Rankings e demais distribuições usam o período completo. ' : ''}Dias sem eventos aparecem com zero.`);
+  const releases = $('release-chart'); releases.replaceChildren();
+  const decades = data.distribution.release_decades;
+  if (!decades.length) releases.append(node('li', 'chart-empty', 'Nenhuma reprodução para distribuir por década.'));
+  for (const item of decades) {
+    const row = node('li', 'release-row');
+    const label = item.decade === null ? 'Sem data' : `${String(item.decade).padStart(4, '0')}–${String(item.decade + 9).padStart(4, '0')}`;
+    row.title = `${label}: ${reproductions(item.plays)}, ${percent(item.share_pct)} do período`;
+    row.setAttribute('aria-label', row.title);
+    const meter = node('progress'); meter.max = 100; meter.value = item.share_pct; meter.setAttribute('aria-hidden', 'true');
+    row.append(node('span', '', label), meter, node('strong', '', percent(item.share_pct)), node('span', 'release-count', number(item.plays)));
+    releases.append(row);
+  }
 }
 
 function render(data) {
   timezone = data.timezone;
-  for (const metric of ['plays', 'tracks', 'artists', 'albums']) text(`stat-${metric}`, number(data.summary[metric]));
+  renderMetrics(data);
   const labels = {all: 'Todo o histórico coletado', '7d': 'Últimos 7 dias', '30d': 'Últimos 30 dias', '90d': 'Últimos 90 dias', custom: 'Período personalizado'};
   const bounds = data.period.from ? ` · ${calendar(data.period.from)} a ${calendar(data.period.to)}` : '';
   text('selection-label', `${labels[data.period.name]}${bounds}`);
@@ -141,6 +236,9 @@ async function refresh(event) {
       text('selection-label', 'Consulta indisponível');
       text('selection-range', 'As análises serão exibidas quando a conexão for restabelecida.');
       text('dataset-range', 'O alcance do histórico ainda não pôde ser consultado.');
+      text('listening-summary', 'O resumo estará disponível quando a conexão for restabelecida.');
+      text('comparison-note', 'Aguardando conexão com o banco.');
+      $('release-chart').replaceChildren(node('li', 'chart-empty', 'Aguardando conexão com o banco.'));
       for (const type of ['tracks', 'artists', 'albums']) $(`ranking-${type}`).replaceChildren(node('li', 'ranking-empty', 'Aguardando conexão com o banco.'));
       text('daily-range', 'Aguardando conexão com o banco.');
     }

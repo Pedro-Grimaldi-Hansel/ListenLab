@@ -15,12 +15,14 @@ final readonly class Period
         public ?DateTimeImmutable $from,
         public ?DateTimeImmutable $until,
         public int $limit,
+        public DateTimeImmutable $now,
     ) {}
 
     public static function fromQuery(array $query, string $timezone, ?DateTimeImmutable $now = null): self
     {
         try { $zone = new DateTimeZone($timezone); }
         catch (\Exception) { throw new \RuntimeException('MONITOR_TIMEZONE inválido.'); }
+        $now = ($now ?? new DateTimeImmutable())->setTimezone($zone);
         $name = $query['period'] ?? 'all';
         $limit = $query['limit'] ?? '10';
         if (array_diff(array_keys($query), ['period', 'from', 'to', 'limit'])
@@ -32,15 +34,42 @@ final readonly class Period
             $from = self::day($query['from'] ?? null, $zone);
             $to = self::day($query['to'] ?? null, $zone);
             if ($from > $to) throw new InvalidArgumentException('A data inicial deve ser anterior ou igual à final.');
-            return new self($name, $zone, $from, $to->modify('+1 day')->setTime(0, 0), (int) $limit);
+            return new self($name, $zone, $from, $to->modify('+1 day')->setTime(0, 0), (int) $limit, $now);
         }
         if (array_key_exists('from', $query) || array_key_exists('to', $query)) {
             throw new InvalidArgumentException('Use as datas somente no período personalizado.');
         }
-        $today = ($now ?? new DateTimeImmutable())->setTimezone($zone)->setTime(0, 0);
+        $today = $now->setTime(0, 0);
         return new self($name, $zone,
             $name === 'all' ? null : $today->modify('-' . ((int) $name - 1) . ' days')->setTime(0, 0),
-            $name === 'all' ? null : $today->modify('+1 day')->setTime(0, 0), (int) $limit);
+            $name === 'all' ? null : $today->modify('+1 day')->setTime(0, 0), (int) $limit, $now);
+    }
+
+    /** Compare calendar windows, matching local time of day when today is incomplete. */
+    public function comparison(): array
+    {
+        if ($this->from === null) return ['status' => 'all_history'];
+        $tomorrow = $this->now->modify('+1 day')->setTime(0, 0);
+        if ($this->from > $this->now || $this->until > $tomorrow) return ['status' => 'future_dates'];
+        // Date-only arithmetic avoids 23/25-hour days changing the window length.
+        $calendarFrom = new DateTimeImmutable($this->from->format('Y-m-d'), new DateTimeZone('UTC'));
+        $calendarUntil = new DateTimeImmutable($this->until->format('Y-m-d'), new DateTimeZone('UTC'));
+        $days = (int) $calendarFrom->diff($calendarUntil)->format('%a');
+        $from = $this->from->modify('-' . $days . ' days')->setTime(0, 0);
+        if ((int) $from->format('Y') < 1) return ['status' => 'outside_range'];
+        $partial = $this->until > $this->now;
+        $until = $this->from;
+        if ($partial) {
+            $today = new DateTimeImmutable($this->now->format('Y-m-d'), new DateTimeZone('UTC'));
+            $elapsedDays = (int) $calendarFrom->diff($today)->format('%a');
+            $until = $from->modify('+' . $elapsedDays . ' days')->setTime(
+                (int) $this->now->format('H'), (int) $this->now->format('i'),
+                (int) $this->now->format('s'), (int) $this->now->format('u'),
+            );
+        }
+        return ['status' => 'ready', 'from' => $from->format('Y-m-d'),
+            'to' => $this->from->modify('-1 day')->format('Y-m-d'),
+            'from_at' => self::utc($from), 'until_at' => self::utc($until), 'partial' => $partial];
     }
 
     private static function day(mixed $value, DateTimeZone $zone): DateTimeImmutable

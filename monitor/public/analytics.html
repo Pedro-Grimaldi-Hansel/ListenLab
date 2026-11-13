@@ -26,11 +26,29 @@
     </form>
     <div id="analytics-content" aria-busy="true">
       <section class="analytics-metrics" aria-label="Resumo do período">
-        <article class="primary-metric"><span>Reproduções</span><strong id="stat-plays">—</strong></article>
-        <article><span>Faixas</span><strong id="stat-tracks">—</strong></article>
-        <article><span>Artistas</span><strong id="stat-artists">—</strong></article>
-        <article><span>Álbuns</span><strong id="stat-albums">—</strong></article>
+        <article class="primary-metric"><span>Reproduções</span><strong id="stat-plays">—</strong><span class="metric-delta" id="delta-plays" hidden></span></article>
+        <article><span>Faixas</span><strong id="stat-tracks">—</strong><span class="metric-delta" id="delta-tracks" hidden></span></article>
+        <article><span>Artistas</span><strong id="stat-artists">—</strong><span class="metric-delta" id="delta-artists" hidden></span></article>
+        <article><span>Álbuns</span><strong id="stat-albums">—</strong><span class="metric-delta" id="delta-albums" hidden></span></article>
       </section>
+      <section class="analytics-insights" aria-label="Entenda sua escuta">
+        <article class="insight-card" aria-labelledby="average-title">
+          <h2 id="average-title">Média por dia com escuta</h2>
+          <div class="insight-value"><strong id="stat-average">—</strong><span>reproduções por dia</span></div>
+          <p class="insight-formula" id="active-days">Consultando reproduções e dias com registros…</p>
+          <p class="insight-explanation">A média considera apenas os dias com alguma reprodução registrada.</p>
+          <span class="metric-delta" id="delta-plays_per_active_day" hidden></span>
+        </article>
+        <article class="insight-card" aria-labelledby="concentration-title">
+          <h2 id="concentration-title">Seus 10 artistas mais ouvidos</h2>
+          <div class="insight-value"><strong id="stat-concentration">—</strong><span>das reproduções</span></div>
+          <p class="insight-formula" id="concentration-detail">Consultando a participação no período…</p>
+          <progress class="concentration-meter" id="concentration-meter" max="100" value="0" aria-label="Participação dos artistas mais ouvidos"></progress>
+          <p class="insight-explanation">Quanto maior essa fatia, mais sua escuta se concentra nesses artistas.</p>
+          <span class="metric-delta" id="delta-top_artists_share_pct" hidden></span>
+        </article>
+      </section>
+      <section class="listening-summary" aria-label="Resumo da escuta"><p id="listening-summary">Preparando o resumo do período…</p><p id="comparison-note" class="analytics-caption">Consultando a base de comparação.</p></section>
       <div class="data-context"><p id="selection-range">Consultando o período registrado…</p><details class="data-notes"><summary>Sobre os dados</summary><div><strong id="selection-label">Todo o histórico coletado</strong><p id="dataset-range">Consultando a base.</p><p>A API pode deixar lacunas. Dias sem eventos não comprovam ausência de escuta.</p><p>Faixas com identidades diferentes permanecem separadas. Cada artista creditado recebe uma contagem por reprodução.</p><p id="distribution-timezone">Fuso do monitor.</p></div></details></div>
       <div class="analytics-layout">
         <section class="rankings-section" aria-labelledby="rankings-title">
@@ -39,6 +57,7 @@
           <article class="ranking-card" id="panel-tracks" role="tabpanel" tabindex="0" aria-labelledby="tab-tracks"><h3 class="sr-only" id="tracks-title">Ranking de faixas</h3><div class="ranking-column-head" aria-hidden="true"><span>#</span><span>Faixa / artista</span><span>Reproduções</span><span>Participação</span></div><ol class="ranking-list" id="ranking-tracks" aria-label="Ranking de faixas"><li class="ranking-empty">Carregando faixas…</li></ol><div class="ranking-foot"><span id="tracks-count">— faixas</span><span>Versões de catálogo separadas</span></div></article>
           <article class="ranking-card" id="panel-artists" role="tabpanel" tabindex="0" aria-labelledby="tab-artists" hidden><h3 class="sr-only" id="artists-title">Ranking de artistas</h3><div class="ranking-column-head" aria-hidden="true"><span>#</span><span>Artista</span><span>Reproduções</span><span>Participação</span></div><ol class="ranking-list" id="ranking-artists" aria-label="Ranking de artistas"><li class="ranking-empty">Carregando artistas…</li></ol><div class="ranking-foot"><span id="artists-count">— artistas</span></div><p class="ranking-note">Uma reprodução conta para cada artista creditado. As participações podem somar mais de 100%.</p></article>
           <article class="ranking-card" id="panel-albums" role="tabpanel" tabindex="0" aria-labelledby="tab-albums" hidden><h3 class="sr-only" id="albums-title">Ranking de álbuns</h3><div class="ranking-column-head" aria-hidden="true"><span>#</span><span>Álbum</span><span>Reproduções</span><span>Participação</span></div><ol class="ranking-list" id="ranking-albums" aria-label="Ranking de álbuns"><li class="ranking-empty">Carregando álbuns…</li></ol><div class="ranking-foot"><span id="albums-count">— álbuns</span></div><p class="ranking-note" id="albums-note">Contagem por álbum identificado.</p></article>
+          <p class="analytics-caption" id="ranking-dates-note">Primeira e última reprodução consideram todo o histórico registrado. “Novo” indica ausência no período anterior, não uma descoberta.</p>
           <p class="analytics-caption" id="catalog-note">Empates: nome e ID do catálogo.</p>
         </section>
         <section class="distribution-section" aria-labelledby="distribution-title">
@@ -46,6 +65,7 @@
           <article class="chart-card daily-card"><div class="chart-heading"><h3>Por dia</h3><p id="daily-range">Consultando as datas.</p></div><div class="chart-scroll" tabindex="0" role="region" aria-label="Gráfico diário, role para percorrer as datas"><ol class="column-chart daily-chart" id="daily-chart" aria-label="Reproduções por data"></ol></div><p class="analytics-caption" id="daily-note">Dias sem eventos aparecem com zero.</p></article>
           <article class="chart-card"><div class="chart-heading"><h3>Por hora</h3><span class="subtle-label">00–23h</span></div><div class="chart-scroll" tabindex="0" role="region" aria-label="Distribuição pelas 24 horas"><ol class="column-chart hours-chart" id="hour-chart" aria-label="Reproduções em cada hora"></ol></div><details class="chart-values"><summary>Ver valores por hora</summary><table><caption class="sr-only">Reproduções por hora no período</caption><thead><tr><th>Hora</th><th class="numeric">Reproduções</th><th class="numeric">Participação</th></tr></thead><tbody id="hour-values"></tbody></table></details></article>
           <article class="chart-card"><div class="chart-heading"><h3>Na semana</h3><span class="subtle-label">Totais por dia</span></div><ol class="weekday-chart" id="weekday-chart" aria-label="Reproduções em cada dia da semana"></ol></article>
+          <article class="chart-card release-card"><div class="chart-heading"><h3>Épocas do catálogo</h3><span class="subtle-label">Por década</span></div><ol class="release-chart" id="release-chart" aria-label="Reproduções por década de lançamento do álbum"></ol><p class="analytics-caption">Participação nas reproduções do período. Ano do álbum no catálogo; relançamentos podem diferir da gravação original.</p></article>
         </section>
       </div>
     </div>

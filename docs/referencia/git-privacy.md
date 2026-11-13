@@ -1,10 +1,12 @@
 # Git e dados privados
 
+[Índice](../README.md) · [Desenvolvimento](../guias/desenvolvimento.md)
+
 As regras que controlam quais arquivos entram no repositório estão no `.gitignore`. A identidade e o remoto do Git não substituem essas regras. A identidade de commit e o remoto do proprietário foram mantidos.
 
 São ignorados `.env` e suas variantes/cópias, tokens, toda a pasta `storage`, backups, dumps, exports, volumes locais de banco, chaves e arquivos de banco ou arquivos compactados. As migrations SQL em `migrations/` são permitidas explicitamente. Somente `.env.example` na raiz é liberado como modelo de configuração; suas credenciais Spotify estão vazias e a senha de exemplo é um placeholder.
 
-Exemplos que podem subir ficam em [`examples/`](../examples/README.md), com dados inteiramente inventados. Mantenha coletas reais, exports do Spotify, relatórios e cópias de banco dentro das pastas privadas. Não cole payloads ou credenciais reais no código, nos exemplos ou na documentação.
+Exemplos que podem subir ficam em [`examples/`](../../examples/README.md), com dados inteiramente inventados. Mantenha coletas reais, exports do Spotify, relatórios e cópias de banco dentro das pastas privadas. Não cole payloads ou credenciais reais no código, nos exemplos ou na documentação.
 
 Para conferir antes de preparar um commit, na raiz do projeto:
 
